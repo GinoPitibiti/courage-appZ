@@ -267,34 +267,67 @@
             };
 
             const addComment = async (exposureId) => {
-                if (!commentText.trim()) return;
+                if (!commentText.trim()) {
+                    console.log("Commentaire vide, abandon");
+                    return;
+                }
+
+                console.log("Ajout commentaire pour exposition:", exposureId);
+                console.log("Texte du commentaire:", commentText);
+
                 try {
+                    const exposureRef = db.collection('public_exposures').doc(exposureId);
+
+                    // Récupérer le document actuel
+                    const doc = await exposureRef.get();
+
+                    if (!doc.exists) {
+                        console.error("Document non trouvé!");
+                        alert("Exposition introuvable");
+                        return;
+                    }
+
+                    const data = doc.data();
+                    console.log("Document récupéré:", data);
+
+                    // Créer le nouveau commentaire avec un timestamp sérialisable
                     const newComment = {
                         userId: user.uid,
                         userName: user.displayName || 'Utilisateur',
-                        text: commentText,
-                        createdAt: new Date()
+                        text: commentText.trim(),
+                        createdAt: new Date().toISOString()
                     };
 
-                    const exposureRef = db.collection('public_exposures').doc(exposureId);
-                    const doc = await exposureRef.get();
-                    const data = doc.data();
-                    const comments = data.comments || [];
-                    comments.push(newComment);
-                    await exposureRef.update({ comments });
+                    console.log("Nouveau commentaire créé:", newComment);
+
+                    // Récupérer les commentaires existants et ajouter le nouveau
+                    const updatedComments = [...(data.comments || []), newComment];
+
+                    console.log("Mise à jour avec les commentaires:", updatedComments);
+
+                    // Mettre à jour le document avec le nouveau tableau de commentaires
+                    await exposureRef.update({
+                        comments: updatedComments
+                    });
+
+                    console.log("Commentaire ajouté à Firebase avec succès");
 
                     // Mise à jour locale immédiate de l'état pour afficher le commentaire instantanément
                     setPublicExposures(prev => prev.map(exp =>
                         exp.id === exposureId
-                            ? { ...exp, comments: [...(exp.comments || []), newComment] }
+                            ? { ...exp, comments: updatedComments }
                             : exp
                     ));
+
+                    console.log("État local mis à jour");
 
                     setCommentText('');
                     setShowCommentBox(null);
                 } catch (error) {
-                    console.error("Erreur ajout commentaire:", error);
-                    alert("Erreur lors de l'ajout du commentaire. Veuillez réessayer.");
+                    console.error("Erreur complète ajout commentaire:", error);
+                    console.error("Code erreur:", error.code);
+                    console.error("Message erreur:", error.message);
+                    alert("Erreur lors de l'ajout du commentaire: " + error.message);
                 }
             };
 
