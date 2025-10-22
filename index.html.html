@@ -175,7 +175,11 @@
             const deleteExposure = async (exposureId, isPublicExp) => {
                 if (!confirm('Voulez-vous vraiment supprimer cette exposition ?')) return;
                 try {
+                    console.log("🗑️ Suppression exposition:", exposureId, "Public:", isPublicExp);
+
                     await db.collection('exposures').doc(exposureId).delete();
+                    console.log("✅ Supprimé de la collection exposures");
+
                     if (isPublicExp) {
                         const publicDocs = await db.collection('public_exposures')
                             .where('userId', '==', user.uid)
@@ -184,12 +188,72 @@
                             const data = doc.data();
                             if (data.name === allExposures.find(e => e.id === exposureId)?.name) {
                                 await db.collection('public_exposures').doc(doc.id).delete();
+                                console.log("✅ Supprimé de la collection public_exposures");
                             }
                         });
                     }
                     setAllExposures(allExposures.filter(e => e.id !== exposureId));
                 } catch (error) {
                     console.error("Erreur suppression:", error);
+                    alert("Erreur lors de la suppression: " + error.message);
+                }
+            };
+
+            const deletePublicExposure = async (exposureId, exposureUserId) => {
+                // Vérifier les permissions : propriétaire ou admin
+                const isOwner = exposureUserId === user.uid;
+                const isAdmin = userStats.role === 'admin';
+
+                if (!isOwner && !isAdmin) {
+                    alert("Vous n'avez pas la permission de supprimer cette exposition");
+                    return;
+                }
+
+                const confirmMsg = isAdmin && !isOwner
+                    ? '⚠️ MODÉRATION : Voulez-vous vraiment supprimer cette exposition publique ?'
+                    : 'Voulez-vous vraiment supprimer cette exposition ?';
+
+                if (!confirm(confirmMsg)) return;
+
+                try {
+                    console.log("🗑️ Suppression exposition publique:", exposureId);
+                    console.log("Propriétaire:", exposureUserId, "User actuel:", user.uid, "Admin:", isAdmin);
+
+                    // Supprimer de public_exposures
+                    await db.collection('public_exposures').doc(exposureId).delete();
+                    console.log("✅ Supprimé de public_exposures");
+
+                    // Si c'est le propriétaire, supprimer aussi de sa collection exposures privée
+                    if (isOwner) {
+                        const privateExposures = await db.collection('exposures')
+                            .where('userId', '==', user.uid)
+                            .get();
+
+                        // Chercher l'exposition correspondante dans la collection privée
+                        const publicExp = publicExposures.find(e => e.id === exposureId);
+                        if (publicExp) {
+                            privateExposures.forEach(async (doc) => {
+                                const data = doc.data();
+                                if (data.name === publicExp.name &&
+                                    data.createdAt?.toDate?.()?.getTime() === publicExp.createdAt?.toDate?.()?.getTime()) {
+                                    await db.collection('exposures').doc(doc.id).delete();
+                                    console.log("✅ Supprimé aussi de exposures privées");
+                                }
+                            });
+                        }
+                    }
+
+                    // Mettre à jour l'état local
+                    setPublicExposures(prev => prev.filter(e => e.id !== exposureId));
+
+                    if (isOwner) {
+                        setAllExposures(prev => prev.filter(e => e.name !== publicExposures.find(exp => exp.id === exposureId)?.name));
+                    }
+
+                    console.log("✅ Suppression réussie");
+                } catch (error) {
+                    console.error("Erreur suppression exposition publique:", error);
+                    alert("Erreur lors de la suppression: " + error.message);
                 }
             };
 
@@ -931,10 +995,16 @@
                                                         </div>
                                                         <p className="text-sm text-gray-600 mt-1">{exp.date}</p>
                                                     </div>
-                                                    <div className="text-right">
+                                                    <div className="text-right flex flex-col items-end gap-1">
                                                         <p className="text-sm text-gray-600">Durée: {formatTime(exp.duration)}</p>
                                                         <p className="text-sm font-semibold text-blue-600">+{exp.xpGained} XP</p>
-                                                        <button onClick={() => deleteExposure(exp.id, exp.isPublic)} className="text-xs text-red-500 hover:text-red-700 mt-1">🗑️ Supprimer</button>
+                                                        <button
+                                                            onClick={() => deleteExposure(exp.id, exp.isPublic)}
+                                                            className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded transition-colors mt-1"
+                                                            title="Supprimer cette exposition"
+                                                        >
+                                                            🗑️ Supprimer
+                                                        </button>
                                                     </div>
                                                 </div>
                                                 {renderChart(exp.ratings)}
@@ -969,7 +1039,26 @@
                                                             <p className="text-sm text-gray-600">Niv. {exp.userInfo.level || 1} • {exp.date}</p>
                                                         </div>
                                                     </div>
-                                                    <div className="text-right text-sm text-gray-500"><p>👁️ {exp.views || 0}</p></div>
+                                                    <div className="text-right flex flex-col items-end gap-1">
+                                                        <p className="text-sm text-gray-500">👁️ {exp.views || 0}</p>
+                                                        {(exp.userId === user.uid || userStats.role === 'admin') && (
+                                                            <button
+                                                                onClick={() => deletePublicExposure(exp.id, exp.userId)}
+                                                                className={`text-xs px-2 py-1 rounded transition-colors ${
+                                                                    userStats.role === 'admin' && exp.userId !== user.uid
+                                                                        ? 'text-orange-600 hover:text-red-700 hover:bg-red-50 font-semibold'
+                                                                        : 'text-red-500 hover:text-red-700 hover:bg-red-50'
+                                                                }`}
+                                                                title={
+                                                                    userStats.role === 'admin' && exp.userId !== user.uid
+                                                                        ? '👑 Modération admin : Supprimer cette exposition'
+                                                                        : 'Supprimer mon exposition'
+                                                                }
+                                                            >
+                                                                {userStats.role === 'admin' && exp.userId !== user.uid ? '👑 🗑️' : '🗑️'} Supprimer
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 <h3 className="font-bold text-lg text-gray-800 mb-3">{exp.name}</h3>
                                                 {renderChart(exp.ratings)}
