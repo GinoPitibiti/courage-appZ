@@ -55,7 +55,6 @@
             const [password, setPassword] = useState('');
             const [displayName, setDisplayName] = useState('');
             const [authError, setAuthError] = useState('');
-
             const [currentView, setCurrentView] = useState('home');
             const [isExposing, setIsExposing] = useState(false);
             const [timer, setTimer] = useState(0);
@@ -68,7 +67,6 @@
             const [publicExposures, setPublicExposures] = useState([]);
             const [commentText, setCommentText] = useState('');
             const [showCommentBox, setShowCommentBox] = useState(null);
-            
             const [userStats, setUserStats] = useState({
                 level: 1,
                 xp: 0,
@@ -77,7 +75,6 @@
                 totalExposures: 0,
                 badges: []
             });
-            
             const [showConfetti, setShowConfetti] = useState(false);
             const [encouragementMsg, setEncouragementMsg] = useState('');
             const [anxietyPhase, setAnxietyPhase] = useState('rising');
@@ -101,13 +98,11 @@
                 const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
                     setUser(currentUser);
                     setLoading(false);
-                    
                     if (currentUser) {
                         await loadUserData(currentUser.uid);
                         loadPublicFeed();
                     }
                 });
-                
                 return () => unsubscribe();
             }, []);
 
@@ -128,7 +123,6 @@
                         }
                         setPublicExposures(exposures);
                     });
-                
                 return unsubscribe;
             };
 
@@ -151,12 +145,10 @@
                         await db.collection('users').doc(userId).set(defaultStats);
                         setUserStats(defaultStats);
                     }
-
                     const exposuresSnapshot = await db.collection('exposures')
                         .where('userId', '==', userId)
                         .orderBy('createdAt', 'desc')
                         .get();
-                    
                     const exposures = [];
                     exposuresSnapshot.forEach(doc => {
                         exposures.push({ id: doc.id, ...doc.data() });
@@ -167,16 +159,35 @@
                 }
             };
 
+            const deleteExposure = async (exposureId, isPublicExp) => {
+                if (!confirm('Voulez-vous vraiment supprimer cette exposition ?')) return;
+                try {
+                    await db.collection('exposures').doc(exposureId).delete();
+                    if (isPublicExp) {
+                        const publicDocs = await db.collection('public_exposures')
+                            .where('userId', '==', user.uid)
+                            .get();
+                        publicDocs.forEach(async (doc) => {
+                            const data = doc.data();
+                            if (data.name === allExposures.find(e => e.id === exposureId)?.name) {
+                                await db.collection('public_exposures').doc(doc.id).delete();
+                            }
+                        });
+                    }
+                    setAllExposures(allExposures.filter(e => e.id !== exposureId));
+                } catch (error) {
+                    console.error("Erreur suppression:", error);
+                }
+            };
+
             const handleSignup = async (e) => {
                 e.preventDefault();
                 setAuthError('');
-                
                 try {
                     const userCredential = await auth.createUserWithEmailAndPassword(email, password);
                     await userCredential.user.updateProfile({
                         displayName: displayName || email.split('@')[0]
                     });
-                    
                     await db.collection('users').doc(userCredential.user.uid).set({
                         displayName: displayName || email.split('@')[0],
                         email: email,
@@ -202,7 +213,6 @@
             const handleLogin = async (e) => {
                 e.preventDefault();
                 setAuthError('');
-                
                 try {
                     await auth.signInWithEmailAndPassword(email, password);
                 } catch (error) {
@@ -219,7 +229,6 @@
                 try {
                     const provider = new firebase.auth.GoogleAuthProvider();
                     const result = await auth.signInWithPopup(provider);
-                    
                     const userDoc = await db.collection('users').doc(result.user.uid).get();
                     if (!userDoc.exists) {
                         await db.collection('users').doc(result.user.uid).set({
@@ -259,12 +268,10 @@
 
             const addComment = async (exposureId) => {
                 if (!commentText.trim()) return;
-                
                 try {
                     const exposureRef = db.collection('public_exposures').doc(exposureId);
                     const doc = await exposureRef.get();
                     const data = doc.data();
-                    
                     const comments = data.comments || [];
                     comments.push({
                         userId: user.uid,
@@ -272,7 +279,6 @@
                         text: commentText,
                         createdAt: new Date()
                     });
-                    
                     await exposureRef.update({ comments });
                     setCommentText('');
                     setShowCommentBox(null);
@@ -297,7 +303,6 @@
                 if (isExposing) {
                     interval = setInterval(() => {
                         setTimer(prev => prev + 1);
-                        
                         if (timer === 300 && anxietyRatings.length > 0) {
                             const currentAnxietyLevel = anxietyRatings[anxietyRatings.length - 1].anxiety;
                             if (currentAnxietyLevel >= 6) {
@@ -305,7 +310,6 @@
                                 setTimeout(() => setEncouragementMsg(''), 6000);
                             }
                         }
-                        
                         if (timer > 300 && timer % 60 === 0 && anxietyRatings.length > 0) {
                             const currentAnxietyLevel = anxietyRatings[anxietyRatings.length - 1].anxiety;
                             if (currentAnxietyLevel >= 6) {
@@ -326,11 +330,9 @@
                                 setTimeout(() => setEncouragementMsg(''), 4000);
                             }
                         }
-                        
                         if (anxietyRatings.length > 0) {
                             const lastRatingTime = anxietyRatings[anxietyRatings.length - 1].time;
                             const timeSinceLastRating = timer - lastRatingTime;
-                            
                             if (timeSinceLastRating === 300) {
                                 setEncouragementMsg("📝 Ça fait 5 minutes ! Note ton niveau d'anxiété MAINTENANT pour suivre ta courbe d'habituation. C'est crucial !");
                                 setTimeout(() => setEncouragementMsg(''), 5000);
@@ -343,42 +345,33 @@
 
             const analyzeAnxietyCurve = (ratings) => {
                 if (ratings.length < 2) return;
-
                 const lastRating = ratings[ratings.length - 1].anxiety;
                 const peak = Math.max(...ratings.map(r => r.anxiety));
                 const currentTime = ratings[ratings.length - 1].time;
-                
                 if (peak >= 6 && !peakReached) {
                     setPeakReached(true);
                     setEncouragementMsg("🔥 Le pic est là ! C'est normal, tiens bon. Ça va bientôt redescendre naturellement !");
                     setTimeout(() => setEncouragementMsg(''), 4000);
                 }
-
                 if (ratings.length >= 3 && peakReached) {
                     const last3 = ratings.slice(-3);
-                    const isDescending = last3.length >= 2 && 
-                        last3.every((r, i) => i === 0 || r.anxiety <= last3[i-1].anxiety);
-                    
+                    const isDescending = last3.length >= 2 && last3.every((r, i) => i === 0 || r.anxiety <= last3[i-1].anxiety);
                     const hasDropped = lastRating < peak - 1;
-
                     if ((isDescending || hasDropped) && anxietyPhase !== 'declining' && anxietyPhase !== 'plateau') {
                         setAnxietyPhase('declining');
                         setEncouragementMsg("🎯 Excellent ! Ton anxiété baisse ! C'est l'habituation en action. Tu vois ? Ça marche !");
                         setTimeout(() => setEncouragementMsg(''), 5000);
                     }
                 }
-
                 if (ratings.length >= 3) {
                     const last3 = ratings.slice(-3);
                     const maxRecent = Math.max(...last3.map(r => r.anxiety));
                     const minRecent = Math.min(...last3.map(r => r.anxiety));
                     const variation = maxRecent - minRecent;
-
                     if (variation <= 1) {
                         if (anxietyPhase !== 'plateau' && !plateauStartTime) {
                             setAnxietyPhase('plateau');
                             setPlateauStartTime(currentTime);
-                            
                             if (maxRecent >= 6) {
                                 setEncouragementMsg("✨ Plateau atteint ! Ton cerveau s'habitue. Continue, on attend que ça descende sous 6 !");
                             } else {
@@ -388,11 +381,9 @@
                         }
                     }
                 }
-
                 if (peakReached && ratings.length >= 4) {
                     const last3 = ratings.slice(-3);
                     const allBelow6 = last3.every(r => r.anxiety < 6);
-                    
                     if (allBelow6 && !canEnd) {
                         setCanEnd(true);
                         const avgAnxiety = Math.round(last3.reduce((sum, r) => sum + r.anxiety, 0) / 3);
@@ -405,11 +396,9 @@
                         setTimeout(() => setEncouragementMsg(''), 18000);
                     }
                 }
-                
                 if (peakReached && ratings.length >= 3) {
                     const last2 = ratings.slice(-2);
                     const allBelow3 = last2.every(r => r.anxiety <= 3);
-                    
                     if (allBelow3 && !canEnd) {
                         setCanEnd(true);
                         setEncouragementMsg(
@@ -440,15 +429,12 @@
                 const newRatings = [...anxietyRatings, { time: timer, anxiety: currentAnxiety }];
                 setAnxietyRatings(newRatings);
                 setCurrentRatingIndex(newRatings.length - 1);
-                
                 if (newRatings.length >= 2) {
                     const previous = newRatings[newRatings.length - 2].anxiety;
                     const current = currentAnxiety;
-                    
                     if (current < previous) {
                         setShowImprovement(true);
                         setTimeout(() => setShowImprovement(false), 2000);
-                        
                         const improvement = previous - current;
                         if (improvement >= 2) {
                             setEncouragementMsg("🎉 Wow ! -" + improvement + " points ! Tu gères de mieux en mieux ! 💪");
@@ -458,37 +444,30 @@
                         setTimeout(() => setEncouragementMsg(''), 3000);
                     }
                 }
-                
                 analyzeAnxietyCurve(newRatings);
             };
 
             const endExposure = async () => {
                 setIsExposing(false);
-                
                 const peakAnxiety = Math.max(...anxietyRatings.map(r => r.anxiety));
                 const finalAnxiety = anxietyRatings[anxietyRatings.length - 1]?.anxiety || 5;
                 const anxietyReduction = anxietyRatings[0]?.anxiety - finalAnxiety;
-                
                 let xpGained = 50;
                 if (timer > 60) xpGained += 20;
                 if (timer > 180) xpGained += 30;
                 if (anxietyReduction > 2) xpGained += 25;
                 if (peakAnxiety >= 8) xpGained += 15;
-                
                 const bonusXP = Math.random() > 0.7 ? Math.floor(Math.random() * 30) + 10 : 0;
                 xpGained += bonusXP;
-                
                 const newXP = userStats.xp + xpGained;
                 let newLevel = userStats.level;
                 let xpForNext = userStats.xpToNextLevel;
-                
                 if (newXP >= xpForNext) {
                     newLevel++;
                     xpForNext = newLevel * 100;
                     setShowConfetti(true);
                     setTimeout(() => setShowConfetti(false), 3000);
                 }
-                
                 const newStats = {
                     ...userStats,
                     xp: newXP >= userStats.xpToNextLevel ? newXP - userStats.xpToNextLevel : newXP,
@@ -497,25 +476,18 @@
                     totalExposures: userStats.totalExposures + 1,
                     streak: userStats.streak + 1
                 };
-                
-                const newBadges = badges.filter(b => 
-                    !userStats.badges.includes(b.id) && b.condition(newStats)
-                ).map(b => b.id);
-                
+                const newBadges = badges.filter(b => !userStats.badges.includes(b.id) && b.condition(newStats)).map(b => b.id);
                 if (newBadges.length > 0) {
                     newStats.badges = [...userStats.badges, ...newBadges];
                     setShowConfetti(true);
                     setTimeout(() => setShowConfetti(false), 3000);
                 }
-                
                 setUserStats(newStats);
-                
                 try {
                     await db.collection('users').doc(user.uid).set(newStats);
                 } catch (error) {
                     console.error("Erreur sauvegarde stats:", error);
                 }
-                
                 const exposure = {
                     userId: user.uid,
                     name: exposureName,
@@ -530,12 +502,10 @@
                     isPublic: isPublic,
                     createdAt: new Date()
                 };
-                
                 try {
                     const docRef = await db.collection('exposures').add(exposure);
                     exposure.id = docRef.id;
                     setAllExposures([exposure, ...allExposures]);
-                    
                     if (isPublic) {
                         await db.collection('public_exposures').add({
                             ...exposure,
@@ -546,7 +516,6 @@
                 } catch (error) {
                     console.error("Erreur sauvegarde exposition:", error);
                 }
-                
                 setCurrentView('journal');
             };
 
@@ -554,28 +523,20 @@
                 const updated = [...allExposures];
                 updated[0].journal = journal;
                 setAllExposures(updated);
-                
                 try {
-                    await db.collection('exposures').doc(updated[0].id).update({
-                        journal: journal
-                    });
-                    
+                    await db.collection('exposures').doc(updated[0].id).update({ journal: journal });
                     if (updated[0].isPublic) {
                         const publicExposure = await db.collection('public_exposures')
                             .where('userId', '==', user.uid)
                             .where('createdAt', '==', updated[0].createdAt)
                             .get();
-                        
                         if (!publicExposure.empty) {
-                            await db.collection('public_exposures').doc(publicExposure.docs[0].id).update({
-                                journal: journal
-                            });
+                            await db.collection('public_exposures').doc(publicExposure.docs[0].id).update({ journal: journal });
                         }
                     }
                 } catch (error) {
                     console.error("Erreur sauvegarde journal:", error);
                 }
-                
                 setJournal('');
                 setExposureName('');
                 setAnxietyRatings([]);
@@ -596,16 +557,11 @@
                 const maxTime = Math.max(...ratings.map(r => r.time));
                 const width = 300;
                 const height = 150;
-                
                 const points = ratings.map(r => ({
                     x: (r.time / maxTime) * width,
                     y: height - (r.anxiety / maxAnxiety) * height
                 }));
-                
-                const pathData = points.map((p, i) => 
-                    `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`
-                ).join(' ');
-                
+                const pathData = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
                 return (
                     <svg width={width} height={height} className="mx-auto mt-4">
                         <defs>
@@ -638,110 +594,36 @@
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4">
                         <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
-                            <h1 className="text-4xl font-bold text-center bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">
-                                Courage
-                            </h1>
-                            <p className="text-center text-gray-600 mb-8">
-                                Ton compagnon d'exposition thérapeutique
-                            </p>
-
+                            <h1 className="text-4xl font-bold text-center bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">Courage</h1>
+                            <p className="text-center text-gray-600 mb-8">Ton compagnon d'exposition thérapeutique</p>
                             <div className="flex gap-2 mb-6">
-                                <button
-                                    onClick={() => setAuthMode('login')}
-                                    className={`flex-1 py-2 rounded-lg font-semibold transition-all ${
-                                        authMode === 'login'
-                                            ? 'bg-blue-500 text-white'
-                                            : 'bg-gray-100 text-gray-600'
-                                    }`}
-                                >
-                                    Connexion
-                                </button>
-                                <button
-                                    onClick={() => setAuthMode('signup')}
-                                    className={`flex-1 py-2 rounded-lg font-semibold transition-all ${
-                                        authMode === 'signup'
-                                            ? 'bg-blue-500 text-white'
-                                            : 'bg-gray-100 text-gray-600'
-                                    }`}
-                                >
-                                    Inscription
-                                </button>
+                                <button onClick={() => setAuthMode('login')} className={`flex-1 py-2 rounded-lg font-semibold transition-all ${authMode === 'login' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}`}>Connexion</button>
+                                <button onClick={() => setAuthMode('signup')} className={`flex-1 py-2 rounded-lg font-semibold transition-all ${authMode === 'signup' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600'}`}>Inscription</button>
                             </div>
-
                             <form onSubmit={authMode === 'login' ? handleLogin : handleSignup}>
                                 {authMode === 'signup' && (
                                     <div className="mb-4">
-                                        <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                            Pseudo
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={displayName}
-                                            onChange={(e) => setDisplayName(e.target.value)}
-                                            placeholder="Ton pseudo"
-                                            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
-                                        />
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Pseudo</label>
+                                        <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Ton pseudo" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" />
                                     </div>
                                 )}
-
                                 <div className="mb-4">
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                        Email
-                                    </label>
-                                    <input
-                                        type="email"
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        placeholder="ton@email.com"
-                                        required
-                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
-                                    />
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Email</label>
+                                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ton@email.com" required className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" />
                                 </div>
-
                                 <div className="mb-6">
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                        Mot de passe
-                                    </label>
-                                    <input
-                                        type="password"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        placeholder="••••••••"
-                                        required
-                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
-                                    />
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Mot de passe</label>
+                                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" />
                                 </div>
-
-                                {authError && (
-                                    <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">
-                                        {authError}
-                                    </div>
-                                )}
-
-                                <button
-                                    type="submit"
-                                    className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-3 rounded-xl font-bold text-lg hover:shadow-lg transform hover:scale-105 transition-all"
-                                >
-                                    {authMode === 'login' ? '🚀 Se connecter' : '✨ Créer mon compte'}
-                                </button>
+                                {authError && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">{authError}</div>}
+                                <button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-3 rounded-xl font-bold text-lg hover:shadow-lg transform hover:scale-105 transition-all">{authMode === 'login' ? '🚀 Se connecter' : '✨ Créer mon compte'}</button>
                             </form>
-
                             <div className="mt-6">
                                 <div className="relative">
-                                    <div className="absolute inset-0 flex items-center">
-                                        <div className="w-full border-t border-gray-300"></div>
-                                    </div>
-                                    <div className="relative flex justify-center text-sm">
-                                        <span className="px-2 bg-white text-gray-500">ou</span>
-                                    </div>
+                                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300"></div></div>
+                                    <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">ou</span></div>
                                 </div>
-
-                                <button
-                                    onClick={handleGoogleLogin}
-                                    className="mt-4 w-full bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
-                                >
-                                    <span>🔍</span> Continuer avec Google
-                                </button>
+                                <button onClick={handleGoogleLogin} className="mt-4 w-full bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-50 transition-all flex items-center justify-center gap-2"><span>🔍</span> Continuer avec Google</button>
                             </div>
                         </div>
                     </div>
@@ -754,59 +636,27 @@
                         <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center">
                             <div className="text-8xl animate-bounce">🎉</div>
                             {[...Array(20)].map((_, i) => (
-                                <div
-                                    key={i}
-                                    className="absolute text-4xl animate-ping"
-                                    style={{
-                                        left: `${Math.random() * 100}%`,
-                                        top: `${Math.random() * 100}%`,
-                                        animationDelay: `${Math.random() * 0.5}s`
-                                    }}
-                                >
-                                    ✨
-                                </div>
+                                <div key={i} className="absolute text-4xl animate-ping" style={{left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%`, animationDelay: `${Math.random() * 0.5}s`}}>✨</div>
                             ))}
                         </div>
                     )}
-
                     <div className="max-w-4xl mx-auto">
                         <div className="bg-white rounded-3xl shadow-2xl p-6 mb-6">
                             <div className="flex items-center justify-between mb-4">
                                 <div>
-                                    <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                                        Courage
-                                    </h1>
+                                    <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Courage</h1>
                                     <p className="text-sm text-gray-600">Bonjour {user.displayName || 'Courage'} 👋</p>
                                 </div>
                                 <div className="flex items-center gap-4">
-                                    <div className="flex items-center gap-2 bg-orange-100 px-3 py-1 rounded-full">
-                                        <span className="text-orange-500">🔥</span>
-                                        <span className="font-bold text-orange-600">{userStats.streak}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 bg-purple-100 px-3 py-1 rounded-full">
-                                        <span className="text-purple-500">⭐</span>
-                                        <span className="font-bold text-purple-600">Niv. {userStats.level}</span>
-                                    </div>
-                                    <button
-                                        onClick={handleLogout}
-                                        className="flex flex-col items-center text-xs text-gray-600 hover:text-red-600 transition-colors"
-                                        title="Déconnexion"
-                                    >
-                                        <span className="text-lg">🚪</span>
-                                        <span className="text-[10px]">Déconnexion</span>
-                                    </button>
+                                    <div className="flex items-center gap-2 bg-orange-100 px-3 py-1 rounded-full"><span className="text-orange-500">🔥</span><span className="font-bold text-orange-600">{userStats.streak}</span></div>
+                                    <div className="flex items-center gap-2 bg-purple-100 px-3 py-1 rounded-full"><span className="text-purple-500">⭐</span><span className="font-bold text-purple-600">Niv. {userStats.level}</span></div>
+                                    <button onClick={handleLogout} className="flex flex-col items-center text-xs text-gray-600 hover:text-red-600 transition-colors" title="Déconnexion"><span className="text-lg">🚪</span><span className="text-[10px]">Déconnexion</span></button>
                                 </div>
                             </div>
-                            
                             <div className="bg-gradient-to-r from-blue-500 to-purple-500 rounded-full h-3 mb-2 overflow-hidden">
-                                <div 
-                                    className="bg-yellow-300 h-full transition-all duration-500"
-                                    style={{ width: `${(userStats.xp / userStats.xpToNextLevel) * 100}%` }}
-                                />
+                                <div className="bg-yellow-300 h-full transition-all duration-500" style={{ width: `${(userStats.xp / userStats.xpToNextLevel) * 100}%` }} />
                             </div>
-                            <p className="text-sm text-gray-600 text-center">
-                                {userStats.xp} / {userStats.xpToNextLevel} XP
-                            </p>
+                            <p className="text-sm text-gray-600 text-center">{userStats.xp} / {userStats.xpToNextLevel} XP</p>
                         </div>
 
                         {currentView === 'home' && !isExposing && (
@@ -815,238 +665,233 @@
                                     <h2 className="text-2xl font-bold text-gray-800 mb-2">Prêt pour une nouvelle exposition ?</h2>
                                     <p className="text-gray-600">Chaque pas compte. Tu es courageux ! 💪</p>
                                 </div>
-
                                 <div className="mb-6">
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                        Quelle situation vas-tu affronter ?
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={exposureName}
-                                        onChange={(e) => setExposureName(e.target.value)}
-                                        placeholder="Ex: Faire mes courses, parler à un collègue..."
-                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
-                                    />
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Quelle situation vas-tu affronter ?</label>
+                                    <input type="text" value={exposureName} onChange={(e) => setExposureName(e.target.value)} placeholder="Ex: Faire mes courses, parler à un collègue..." className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none" />
                                 </div>
-
                                 <div className="mb-6">
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                        Niveau d'anxiété actuel : {currentAnxiety}/10
-                                    </label>
-                                    <input
-                                        type="range"
-                                        min="0"
-                                        max="10"
-                                        value={currentAnxiety}
-                                        onChange={(e) => setCurrentAnxiety(parseInt(e.target.value))}
-                                        className="w-full"
-                                    />
-                                    <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                        <span>Calme</span>
-                                        <span>Panique</span>
-                                    </div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Niveau d'anxiété actuel : {currentAnxiety}/10</label>
+                                    <input type="range" min="0" max="10" value={currentAnxiety} onChange={(e) => setCurrentAnxiety(parseInt(e.target.value))} className="w-full" />
+                                    <div className="flex justify-between text-xs text-gray-500 mt-1"><span>Calme</span><span>Panique</span></div>
                                 </div>
-
                                 <div className="mb-6 bg-gray-50 p-4 rounded-xl">
                                     <label className="flex items-center justify-between cursor-pointer">
                                         <div>
                                             <p className="text-sm font-semibold text-gray-700">Visibilité</p>
-                                            <p className="text-xs text-gray-500 mt-1">
-                                                {isPublic ? '🌍 Public - Visible dans le feed du groupe' : '🔒 Privé - Visible uniquement sur votre profil'}
-                                            </p>
+                                            <p className="text-xs text-gray-500 mt-1">{isPublic ? '🌍 Public - Visible dans le feed du groupe' : '🔒 Privé - Visible uniquement sur votre profil'}</p>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setIsPublic(!isPublic)}
-                                            className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${
-                                                isPublic ? 'bg-blue-500' : 'bg-gray-300'
-                                            }`}
-                                        >
-                                            <span
-                                                className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
-                                                    isPublic ? 'translate-x-7' : 'translate-x-1'
-                                                }`}
-                                            />
+                                        <button type="button" onClick={() => setIsPublic(!isPublic)} className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${isPublic ? 'bg-blue-500' : 'bg-gray-300'}`}>
+                                            <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${isPublic ? 'translate-x-7' : 'translate-x-1'}`} />
                                         </button>
                                     </label>
                                 </div>
-
-                                <button
-                                    onClick={startExposure}
-                                    disabled={!exposureName.trim()}
-                                    className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-4 rounded-xl font-bold text-lg hover:shadow-lg transform hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    🚀 Commencer l'exposition
-                                </button>
-
+                                <button onClick={startExposure} disabled={!exposureName.trim()} className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-4 rounded-xl font-bold text-lg hover:shadow-lg transform hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed">🚀 Commencer l'exposition</button>
                                 <div className="grid grid-cols-3 gap-4 mt-8">
-                                    <div className="bg-blue-50 p-4 rounded-xl text-center">
-                                        <span className="text-3xl">🎯</span>
-                                        <p className="text-2xl font-bold text-blue-600">{userStats.totalExposures}</p>
-                                        <p className="text-xs text-gray-600">Expositions</p>
+                                    <div className="bg-blue-50 p-4 rounded-xl text-center"><span className="text-3xl">🎯</span><p className="text-2xl font-bold text-blue-600">{userStats.totalExposures}</p><p className="text-xs text-gray-600">Expositions</p></div>
+                                    <div className="bg-purple-50 p-4 rounded-xl text-center"><span className="text-3xl">🏆</span><p className="text-2xl font-bold text-purple-600">{userStats.badges.length}</p><p className="text-xs text-gray-600">Badges</p></div>
+                                    <div className="bg-pink-50 p-4 rounded-xl text-center"><span className="text-3xl">💖</span><p className="text-2xl font-bold text-pink-600">{userStats.level}</p><p className="text-xs text-gray-600">Niveau</p></div>
+                                </div>
+                                <button onClick={() => setCurrentView('feed')} className="w-full mt-6 bg-gradient-to-r from-green-400 to-emerald-400 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all">🌟 Feed du groupe</button>
+                                <button onClick={() => setCurrentView('history')} className="w-full mt-3 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200 transition-all">📊 Voir mes progrès</button>
+                                <button onClick={() => setCurrentView('badges')} className="w-full mt-3 bg-gradient-to-r from-yellow-400 to-orange-400 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all">🏆 Mes badges</button>
+                            </div>
+                        )}
+
+                        {isExposing && (
+                            <div className="bg-white rounded-3xl shadow-2xl p-8">
+                                <div className="text-center mb-6">
+                                    <h2 className="text-2xl font-bold text-gray-800 mb-2">{exposureName}</h2>
+                                    <div className="flex items-center justify-center gap-2 text-4xl font-bold text-blue-600"><span>⏱️</span>{formatTime(timer)}</div>
+                                </div>
+                                {anxietyPhase && (
+                                    <div className="mb-4 text-center">
+                                        <div className={`inline-block px-6 py-3 rounded-full font-semibold text-lg ${anxietyPhase === 'rising' ? 'bg-yellow-100 text-yellow-700' : anxietyPhase === 'plateau' ? 'bg-purple-100 text-purple-700' : anxietyPhase === 'declining' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                                            {anxietyPhase === 'rising' ? '📈 Phase de montée' : anxietyPhase === 'plateau' ? '➡️ Plateau d\'habituation' : anxietyPhase === 'declining' ? '📉 Descente active !' : '🎯 En exposition'}
+                                        </div>
                                     </div>
-                                    <div className="bg-purple-50 p-4 rounded-xl text-center">
-                                        <span className="text-3xl">🏆</span>
-                                        <p className="text-2xl font-bold text-purple-600">{userStats.badges.length}</p>
-                                        <p className="text-xs text-gray-600">Badges</p>
+                                )}
+                                {encouragementMsg && (
+                                    <div className={`p-4 rounded-xl mb-6 text-center font-semibold animate-pulse ${canEnd ? 'bg-gradient-to-r from-green-400 to-emerald-400 text-white text-lg' : anxietyPhase === 'declining' ? 'bg-gradient-to-r from-blue-400 to-cyan-400 text-white' : anxietyPhase === 'plateau' ? 'bg-gradient-to-r from-purple-400 to-pink-400 text-white' : 'bg-gradient-to-r from-yellow-400 to-orange-400 text-white'}`}>{encouragementMsg}</div>
+                                )}
+                                <div className="mb-6">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Anxiété actuelle : {currentAnxiety}/10</label>
+                                    <input type="range" min="0" max="10" value={currentAnxiety} onChange={(e) => setCurrentAnxiety(parseInt(e.target.value))} className="w-full" />
+                                    <div className="flex justify-between text-xs text-gray-500 mt-1"><span>😌 Calme</span><span>😰 Anxieux</span></div>
+                                </div>
+                                <button onClick={addAnxietyRating} className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-3 rounded-xl font-semibold mb-4 hover:bg-blue-600 transition-all transform hover:scale-105">✅ Noter ce niveau d'anxiété</button>
+                                {renderChart(anxietyRatings)}
+                                {anxietyRatings.length > 0 && (
+                                    <div className="mt-6">
+                                        <div className={`bg-gradient-to-r p-4 rounded-xl transition-all ${showImprovement ? 'from-green-400 to-emerald-400 scale-105 shadow-lg' : 'from-gray-50 to-gray-100'}`}>
+                                            <div className="flex items-center justify-between">
+                                                <button onClick={() => setCurrentRatingIndex(Math.max(0, currentRatingIndex - 1))} disabled={currentRatingIndex === 0} className="text-2xl disabled:opacity-30 disabled:cursor-not-allowed hover:scale-125 transition-transform">◀</button>
+                                                <div className="text-center flex-1">
+                                                    {currentRatingIndex < anxietyRatings.length && (
+                                                        <>
+                                                            <div className={`text-5xl font-bold mb-2 ${showImprovement ? 'text-white animate-bounce' : 'text-gray-800'}`}>
+                                                                {anxietyRatings[currentRatingIndex].anxiety}
+                                                                {currentRatingIndex > 0 && anxietyRatings[currentRatingIndex].anxiety < anxietyRatings[currentRatingIndex - 1].anxiety && <span className="text-3xl ml-2">📉✨</span>}
+                                                                {currentRatingIndex > 0 && anxietyRatings[currentRatingIndex].anxiety > anxietyRatings[currentRatingIndex - 1].anxiety && <span className="text-3xl ml-2">📈</span>}
+                                                            </div>
+                                                            <div className={`text-sm ${showImprovement ? 'text-white font-bold' : 'text-gray-600'}`}>
+                                                                {formatTime(anxietyRatings[currentRatingIndex].time)}
+                                                                {currentRatingIndex > 0 && <span className="ml-2">({anxietyRatings[currentRatingIndex].anxiety - anxietyRatings[currentRatingIndex - 1].anxiety > 0 ? '+' : ''}{anxietyRatings[currentRatingIndex].anxiety - anxietyRatings[currentRatingIndex - 1].anxiety})</span>}
+                                                            </div>
+                                                            <div className="text-xs mt-1 text-gray-500">Note {currentRatingIndex + 1} / {anxietyRatings.length}</div>
+                                                        </>
+                                                    )}
+                                                </div>
+                                                <button onClick={() => setCurrentRatingIndex(Math.min(anxietyRatings.length - 1, currentRatingIndex + 1))} disabled={currentRatingIndex === anxietyRatings.length - 1} className="text-2xl disabled:opacity-30 disabled:cursor-not-allowed hover:scale-125 transition-transform">▶</button>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="bg-pink-50 p-4 rounded-xl text-center">
-                                        <span className="text-3xl">💖</span>
-                                        <p className="text-2xl font-bold text-pink-600">{userStats.level}</p>
-                                        <p className="text-xs text-gray-600">Niveau</p>
+                                )}
+                                <button onClick={endExposure} className={`w-full py-4 rounded-xl font-bold text-lg mt-6 hover:shadow-lg transform hover:scale-105 transition-all ${canEnd ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white animate-pulse' : 'bg-gradient-to-r from-gray-400 to-gray-500 text-white'}`}>{canEnd ? '🎉 Terminer l\'exposition (Recommandé)' : '⏸️ Terminer l\'exposition'}</button>
+                            </div>
+                        )}
+
+                        {currentView === 'journal' && (
+                            <div className="bg-white rounded-3xl shadow-2xl p-8">
+                                <h2 className="text-2xl font-bold text-gray-800 mb-4">Bravo ! 🎉</h2>
+                                <div className="bg-gradient-to-r from-yellow-100 to-orange-100 p-6 rounded-xl mb-6">
+                                    <p className="text-center text-2xl font-bold text-orange-600 mb-2">+{allExposures[0]?.xpGained} XP</p>
+                                    {allExposures[0]?.bonusXP > 0 && <p className="text-center text-lg text-orange-500">✨ Bonus chance: +{allExposures[0]?.bonusXP} XP !</p>}
+                                    <p className="text-center text-sm text-gray-600 mt-2">Durée: {formatTime(allExposures[0]?.duration)}</p>
+                                </div>
+                                <div className="mb-6">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Comment c'était pour toi ?</label>
+                                    <textarea value={journal} onChange={(e) => setJournal(e.target.value)} placeholder="Décris ton expérience, ce que tu as ressenti, ce que tu as appris..." className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none h-32" />
+                                </div>
+                                <button onClick={saveJournal} className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-4 rounded-xl font-bold text-lg hover:shadow-lg transform hover:scale-105 transition-all">💾 Sauvegarder et continuer</button>
+                            </div>
+                        )}
+
+                        {currentView === 'history' && (
+                            <div className="bg-white rounded-3xl shadow-2xl p-8">
+                                <button onClick={() => setCurrentView('home')} className="mb-4 text-blue-600 font-semibold">← Retour</button>
+                                <h2 className="text-2xl font-bold text-gray-800 mb-2">Mes progrès 📈</h2>
+                                <div className="bg-gradient-to-r from-blue-500 to-purple-500 text-white p-6 rounded-xl mb-6 text-center">
+                                    <div className="text-5xl font-bold mb-2">{allExposures.length}</div>
+                                    <div className="text-lg">Exposition{allExposures.length > 1 ? 's' : ''} réalisée{allExposures.length > 1 ? 's' : ''} 🎯</div>
+                                    <div className="text-sm mt-2 opacity-90">
+                                        {allExposures.length === 0 && "Lance ta première exposition !"}
+                                        {allExposures.length === 1 && "Premier pas accompli ! Continue !"}
+                                        {allExposures.length >= 2 && allExposures.length < 5 && "Tu progresses bien ! 💪"}
+                                        {allExposures.length >= 5 && allExposures.length < 10 && "Excellente régularité ! 🌟"}
+                                        {allExposures.length >= 10 && "Tu es un champion de l'exposition ! 🏆"}
                                     </div>
                                 </div>
-
-                                <button
-                                    onClick={() => setCurrentView('feed')}
-                                    className="w-full mt-6 bg-gradient-to-r from-green-400 to-emerald-400 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all"
-                                >
-                                    🌟 Feed du groupe
-                                </button>
-
-                                <button
-                                    onClick={() => setCurrentView('history')}
-                                    className="w-full mt-3 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200 transition-all"
-                                >
-                                    📊 Voir mes progrès
-                                </button>
-
-                                <button
-                                    onClick={() => setCurrentView('badges')}
-                                    className="w-full mt-3 bg-gradient-to-r from-yellow-400 to-orange-400 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all"
-                                >
-                                    🏆 Mes badges
-                                </button>
+                                {allExposures.length === 0 ? (
+                                    <p className="text-center text-gray-500 py-8">Commence ta première exposition pour voir tes progrès !</p>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {allExposures.map((exp, index) => (
+                                            <div key={exp.id} className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl">
+                                                <div className="flex justify-between items-start mb-3">
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded-full">#{allExposures.length - index}</span>
+                                                            <h3 className="font-bold text-lg text-gray-800">{exp.name}</h3>
+                                                            {exp.isPublic === false && <span className="text-xs bg-gray-200 px-2 py-1 rounded">🔒 Privé</span>}
+                                                        </div>
+                                                        <p className="text-sm text-gray-600 mt-1">{exp.date}</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-sm text-gray-600">Durée: {formatTime(exp.duration)}</p>
+                                                        <p className="text-sm font-semibold text-blue-600">+{exp.xpGained} XP</p>
+                                                        <button onClick={() => deleteExposure(exp.id, exp.isPublic)} className="text-xs text-red-500 hover:text-red-700 mt-1">🗑️ Supprimer</button>
+                                                    </div>
+                                                </div>
+                                                {renderChart(exp.ratings)}
+                                                <div className="mt-4 grid grid-cols-2 gap-3">
+                                                    <div className="bg-red-100 p-3 rounded-lg"><p className="text-xs text-gray-600">Pic d'anxiété</p><p className="text-2xl font-bold text-red-600">{exp.peakAnxiety}/10</p></div>
+                                                    <div className="bg-green-100 p-3 rounded-lg"><p className="text-xs text-gray-600">Anxiété finale</p><p className="text-2xl font-bold text-green-600">{exp.finalAnxiety}/10</p></div>
+                                                </div>
+                                                {exp.journal && <div className="mt-4 bg-white p-4 rounded-lg"><p className="text-sm text-gray-700 italic">"{exp.journal}"</p></div>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
 
                         {currentView === 'feed' && (
                             <div className="bg-white rounded-3xl shadow-2xl p-8">
-                                <button
-                                    onClick={() => setCurrentView('home')}
-                                    className="mb-4 text-blue-600 font-semibold"
-                                >
-                                    ← Retour
-                                </button>
-                                
+                                <button onClick={() => setCurrentView('home')} className="mb-4 text-blue-600 font-semibold">← Retour</button>
                                 <h2 className="text-2xl font-bold text-gray-800 mb-2">Feed du groupe 🌟</h2>
                                 <p className="text-gray-600 mb-6">Soutenez vos camarades !</p>
-
                                 {publicExposures.length === 0 ? (
-                                    <div className="text-center py-12">
-                                        <div className="text-6xl mb-4">🌱</div>
-                                        <p className="text-gray-600">Soyez le premier à partager une exposition !</p>
-                                    </div>
+                                    <div className="text-center py-12"><div className="text-6xl mb-4">🌱</div><p className="text-gray-600">Soyez le premier à partager une exposition !</p></div>
                                 ) : (
                                     <div className="space-y-6">
                                         {publicExposures.map((exp) => (
                                             <div key={exp.id} className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl">
                                                 <div className="flex items-start justify-between mb-3">
                                                     <div className="flex items-center gap-3">
-                                                        <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-xl">
-                                                            {exp.userInfo.displayName?.charAt(0).toUpperCase() || 'U'}
-                                                        </div>
+                                                        <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-xl">{exp.userInfo.displayName?.charAt(0).toUpperCase() || 'U'}</div>
                                                         <div>
                                                             <p className="font-bold text-gray-800">{exp.userInfo.displayName || 'Utilisateur'}</p>
-                                                            <p className="text-sm text-gray-600">
-                                                                Niv. {exp.userInfo.level || 1} • {exp.date}
-                                                            </p>
+                                                            <p className="text-sm text-gray-600">Niv. {exp.userInfo.level || 1} • {exp.date}</p>
                                                         </div>
                                                     </div>
-                                                    <div className="text-right text-sm text-gray-500">
-                                                        <p>👁️ {exp.views || 0}</p>
-                                                    </div>
+                                                    <div className="text-right text-sm text-gray-500"><p>👁️ {exp.views || 0}</p></div>
                                                 </div>
-
                                                 <h3 className="font-bold text-lg text-gray-800 mb-3">{exp.name}</h3>
-
                                                 {renderChart(exp.ratings)}
-
                                                 <div className="mt-4 grid grid-cols-3 gap-3">
-                                                    <div className="bg-red-100 p-3 rounded-lg">
-                                                        <p className="text-xs text-gray-600">Pic</p>
-                                                        <p className="text-xl font-bold text-red-600">{exp.peakAnxiety}/10</p>
-                                                    </div>
-                                                    <div className="bg-green-100 p-3 rounded-lg">
-                                                        <p className="text-xs text-gray-600">Final</p>
-                                                        <p className="text-xl font-bold text-green-600">{exp.finalAnxiety}/10</p>
-                                                    </div>
-                                                    <div className="bg-blue-100 p-3 rounded-lg">
-                                                        <p className="text-xs text-gray-600">Durée</p>
-                                                        <p className="text-xl font-bold text-blue-600">{formatTime(exp.duration)}</p>
-                                                    </div>
+                                                    <div className="bg-red-100 p-3 rounded-lg"><p className="text-xs text-gray-600">Pic</p><p className="text-xl font-bold text-red-600">{exp.peakAnxiety}/10</p></div>
+                                                    <div className="bg-green-100 p-3 rounded-lg"><p className="text-xs text-gray-600">Final</p><p className="text-xl font-bold text-green-600">{exp.finalAnxiety}/10</p></div>
+                                                    <div className="bg-blue-100 p-3 rounded-lg"><p className="text-xs text-gray-600">Durée</p><p className="text-xl font-bold text-blue-600">{formatTime(exp.duration)}</p></div>
                                                 </div>
-
-                                                {exp.journal && (
-                                                    <div className="mt-4 bg-white p-4 rounded-lg">
-                                                        <p className="text-sm text-gray-700 italic">"{exp.journal}"</p>
-                                                    </div>
-                                                )}
-
+                                                {exp.journal && <div className="mt-4 bg-white p-4 rounded-lg"><p className="text-sm text-gray-700 italic">"{exp.journal}"</p></div>}
                                                 <div className="mt-4 border-t pt-4">
-                                                    <p className="text-sm font-semibold text-gray-700 mb-3">
-                                                        💬 Commentaires ({exp.comments?.length || 0})
-                                                    </p>
-                                                    
+                                                    <p className="text-sm font-semibold text-gray-700 mb-3">💬 Commentaires ({exp.comments?.length || 0})</p>
                                                     {exp.comments && exp.comments.length > 0 && (
                                                         <div className="space-y-3 mb-3">
                                                             {exp.comments.map((comment, idx) => (
                                                                 <div key={idx} className="bg-white p-3 rounded-lg">
-                                                                    <p className="text-xs font-semibold text-blue-600 mb-1">
-                                                                        {comment.userName}
-                                                                    </p>
+                                                                    <p className="text-xs font-semibold text-blue-600 mb-1">{comment.userName}</p>
                                                                     <p className="text-sm text-gray-700">{comment.text}</p>
                                                                 </div>
                                                             ))}
                                                         </div>
                                                     )}
-
                                                     {showCommentBox === exp.id ? (
                                                         <div className="flex gap-2">
-                                                            <input
-                                                                type="text"
-                                                                value={commentText}
-                                                                onChange={(e) => setCommentText(e.target.value)}
-                                                                placeholder="Écris un message d'encouragement..."
-                                                                className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none text-sm"
-                                                                onKeyPress={(e) => {
-                                                                    if (e.key === 'Enter') {
-                                                                        addComment(exp.id);
-                                                                    }
-                                                                }}
-                                                            />
-                                                            <button
-                                                                onClick={() => addComment(exp.id)}
-                                                                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                                                            >
-                                                                Envoyer
-                                                            </button>
-                                                            <button
-                                                                onClick={() => {
-                                                                    setShowCommentBox(null);
-                                                                    setCommentText('');
-                                                                }}
-                                                                className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                                                            >
-                                                                ✕
-                                                            </button>
+                                                            <input type="text" value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Écris un message d'encouragement..." className="flex-1 px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none text-sm" onKeyPress={(e) => { if (e.key === 'Enter') addComment(exp.id); }} />
+                                                            <button onClick={() => addComment(exp.id)} className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">Envoyer</button>
+                                                            <button onClick={() => { setShowCommentBox(null); setCommentText(''); }} className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors">✕</button>
                                                         </div>
                                                     ) : (
-                                                        <button
-                                                            onClick={() => {
-                                                                setShowCommentBox(exp.id);
-                                                                incrementViews(exp.id);
-                                                            }}
-                                                            className="w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors text-sm font-semibold"
-                                                        >
-                                                            💬 Laisser un commentaire
-                                                        </button>
+                                                        <button onClick={() => { setShowCommentBox(exp.id); incrementViews(exp.id); }} className="w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors text-sm font-semibold">💬 Laisser un commentaire</button>
                                                     )}
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
                                 )}
+                            </div>
+                        )}
+
+                        {currentView === 'badges' && (
+                            <div className="bg-white rounded-3xl shadow-2xl p-8">
+                                <button onClick={() => setCurrentView('home')} className="mb-4 text-blue-600 font-semibold">← Retour</button>
+                                <h2 className="text-2xl font-bold text-gray-800 mb-6">Collection de badges 🏆</h2>
+                                <div className="grid grid-cols-2 gap-4">
+                                    {badges.map((badge) => {
+                                        const unlocked = userStats.badges.includes(badge.id);
+                                        return (
+                                            <div key={badge.id} className={`p-6 rounded-xl text-center transition-all ${unlocked ? 'bg-gradient-to-br from-yellow-100 to-orange-100 shadow-lg transform hover:scale-105' : 'bg-gray-100 opacity-50'}`}>
+                                                <div className="text-5xl mb-2">{unlocked ? badge.icon : '🔒'}</div>
+                                                <p className="font-bold text-gray-800">{badge.name}</p>
+                                                {unlocked && <p className="text-xs text-green-600 mt-1">✓ Débloqué</p>}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="mt-8 bg-gradient-to-r from-purple-100 to-pink-100 p-6 rounded-xl">
+                                    <p className="text-center font-semibold text-gray-700">🎯 Continue tes expositions pour débloquer plus de badges !</p>
+                                </div>
                             </div>
                         )}
                     </div>
