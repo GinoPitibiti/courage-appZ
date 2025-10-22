@@ -44,7 +44,6 @@
             measurementId: "G-08VXV4JR6D"
         };
 
-        // Initialiser Firebase
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
@@ -52,16 +51,14 @@
         const { useState, useEffect } = React;
 
         const CourageApp = () => {
-            // États d'authentification
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
-            const [authMode, setAuthMode] = useState('login'); // 'login' ou 'signup'
+            const [authMode, setAuthMode] = useState('login');
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
             const [displayName, setDisplayName] = useState('');
             const [authError, setAuthError] = useState('');
 
-            // États de l'app
             const [currentView, setCurrentView] = useState('home');
             const [isExposing, setIsExposing] = useState(false);
             const [timer, setTimer] = useState(0);
@@ -70,6 +67,7 @@
             const [exposureName, setExposureName] = useState('');
             const [journal, setJournal] = useState('');
             const [allExposures, setAllExposures] = useState([]);
+            const [publicExposures, setPublicExposures] = useState([]);
             
             const [userStats, setUserStats] = useState({
                 level: 1,
@@ -99,31 +97,49 @@
                 { id: 'level10', name: 'Légende', icon: '🏆', condition: (stats) => stats.level >= 10 }
             ];
 
-            // Écouter les changements d'authentification
             useEffect(() => {
                 const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
                     setUser(currentUser);
                     setLoading(false);
                     
                     if (currentUser) {
-                        // Charger les données utilisateur depuis Firestore
                         await loadUserData(currentUser.uid);
+                        loadPublicFeed();
                     }
                 });
                 
                 return () => unsubscribe();
             }, []);
 
-            // Charger les données utilisateur
+            const loadPublicFeed = () => {
+                const unsubscribe = db.collection('public_exposures')
+                    .orderBy('createdAt', 'desc')
+                    .limit(50)
+                    .onSnapshot(async (snapshot) => {
+                        const exposures = [];
+                        for (const doc of snapshot.docs) {
+                            const data = doc.data();
+                            const userDoc = await db.collection('users').doc(data.userId).get();
+                            exposures.push({
+                                id: doc.id,
+                                ...data,
+                                userInfo: userDoc.exists ? userDoc.data() : { displayName: 'Utilisateur' }
+                            });
+                        }
+                        setPublicExposures(exposures);
+                    });
+                
+                return unsubscribe;
+            };
+
             const loadUserData = async (userId) => {
                 try {
-                    // Charger les stats
                     const statsDoc = await db.collection('users').doc(userId).get();
                     if (statsDoc.exists) {
                         setUserStats(statsDoc.data());
                     } else {
-                        // Créer le profil utilisateur
                         const defaultStats = {
+                            displayName: user?.displayName || 'Utilisateur',
                             level: 1,
                             xp: 0,
                             xpToNextLevel: 100,
@@ -136,7 +152,6 @@
                         setUserStats(defaultStats);
                     }
 
-                    // Charger les expositions
                     const exposuresSnapshot = await db.collection('exposures')
                         .where('userId', '==', userId)
                         .orderBy('createdAt', 'desc')
@@ -152,7 +167,6 @@
                 }
             };
 
-            // Inscription
             const handleSignup = async (e) => {
                 e.preventDefault();
                 setAuthError('');
@@ -163,7 +177,6 @@
                         displayName: displayName || email.split('@')[0]
                     });
                     
-                    // Créer le profil utilisateur dans Firestore
                     await db.collection('users').doc(userCredential.user.uid).set({
                         displayName: displayName || email.split('@')[0],
                         email: email,
@@ -186,7 +199,6 @@
                 }
             };
 
-            // Connexion
             const handleLogin = async (e) => {
                 e.preventDefault();
                 setAuthError('');
@@ -202,14 +214,12 @@
                 }
             };
 
-            // Connexion Google
             const handleGoogleLogin = async () => {
                 setAuthError('');
                 try {
                     const provider = new firebase.auth.GoogleAuthProvider();
                     const result = await auth.signInWithPopup(provider);
                     
-                    // Vérifier si c'est un nouvel utilisateur
                     const userDoc = await db.collection('users').doc(result.user.uid).get();
                     if (!userDoc.exists) {
                         await db.collection('users').doc(result.user.uid).set({
@@ -229,11 +239,11 @@
                 }
             };
 
-            // Déconnexion
             const handleLogout = async () => {
                 try {
                     await auth.signOut();
                     setAllExposures([]);
+                    setPublicExposures([]);
                     setUserStats({
                         level: 1,
                         xp: 0,
@@ -247,7 +257,43 @@
                 }
             };
 
-            // Timer et encouragements (même logique qu'avant)
+            const addReaction = async (exposureId, emoji) => {
+                try {
+                    const exposureRef = db.collection('public_exposures').doc(exposureId);
+                    const doc = await exposureRef.get();
+                    const data = doc.data();
+                    
+                    const reactions = data.reactions || {};
+                    const userReactions = reactions[user.uid] || [];
+                    
+                    if (userReactions.includes(emoji)) {
+                        const newUserReactions = userReactions.filter(e => e !== emoji);
+                        if (newUserReactions.length === 0) {
+                            delete reactions[user.uid];
+                        } else {
+                            reactions[user.uid] = newUserReactions;
+                        }
+                    } else {
+                        reactions[user.uid] = [...userReactions, emoji];
+                    }
+                    
+                    await exposureRef.update({ reactions });
+                } catch (error) {
+                    console.error("Erreur ajout réaction:", error);
+                }
+            };
+
+            const incrementViews = async (exposureId) => {
+                try {
+                    const exposureRef = db.collection('public_exposures').doc(exposureId);
+                    await exposureRef.update({
+                        views: firebase.firestore.FieldValue.increment(1)
+                    });
+                } catch (error) {
+                    console.error("Erreur incrémentation vues:", error);
+                }
+            };
+
             useEffect(() => {
                 let interval;
                 if (isExposing) {
@@ -302,7 +348,6 @@
 
                 const lastRating = ratings[ratings.length - 1].anxiety;
                 const peak = Math.max(...ratings.map(r => r.anxiety));
-                const peakIndex = ratings.findIndex(r => r.anxiety === peak);
                 const currentTime = ratings[ratings.length - 1].time;
                 
                 if (peak >= 6 && !peakReached) {
@@ -467,7 +512,6 @@
                 
                 setUserStats(newStats);
                 
-                // Sauvegarder dans Firestore
                 try {
                     await db.collection('users').doc(user.uid).set(newStats);
                 } catch (error) {
@@ -488,11 +532,16 @@
                     createdAt: new Date()
                 };
                 
-                // Sauvegarder l'exposition dans Firestore
                 try {
                     const docRef = await db.collection('exposures').add(exposure);
                     exposure.id = docRef.id;
                     setAllExposures([exposure, ...allExposures]);
+                    
+                    await db.collection('public_exposures').add({
+                        ...exposure,
+                        reactions: {},
+                        views: 0
+                    });
                 } catch (error) {
                     console.error("Erreur sauvegarde exposition:", error);
                 }
@@ -505,11 +554,21 @@
                 updated[0].journal = journal;
                 setAllExposures(updated);
                 
-                // Mettre à jour dans Firestore
                 try {
                     await db.collection('exposures').doc(updated[0].id).update({
                         journal: journal
                     });
+                    
+                    const publicExposure = await db.collection('public_exposures')
+                        .where('userId', '==', user.uid)
+                        .where('createdAt', '==', updated[0].createdAt)
+                        .get();
+                    
+                    if (!publicExposure.empty) {
+                        await db.collection('public_exposures').doc(publicExposure.docs[0].id).update({
+                            journal: journal
+                        });
+                    }
                 } catch (error) {
                     console.error("Erreur sauvegarde journal:", error);
                 }
@@ -560,7 +619,19 @@
                 );
             };
 
-            // Page de chargement
+            const getReactionCount = (reactions, emoji) => {
+                if (!reactions) return 0;
+                return Object.values(reactions).filter(userReactions => 
+                    userReactions.includes(emoji)
+                ).length;
+            };
+
+            const hasUserReacted = (reactions, emoji) => {
+                if (!reactions || !user) return false;
+                const userReactions = reactions[user.uid];
+                return userReactions && userReactions.includes(emoji);
+            };
+
             if (loading) {
                 return (
                     <div className="min-h-screen flex items-center justify-center">
@@ -572,7 +643,6 @@
                 );
             }
 
-            // Page de connexion/inscription
             if (!user) {
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4">
@@ -687,7 +757,6 @@
                 );
             }
 
-            // Application principale (même interface qu'avant)
             return (
                 <div className="min-h-screen p-4">
                     {showConfetti && (
@@ -748,7 +817,6 @@
                             </p>
                         </div>
 
-                        {/* Le reste de l'interface est identique à la version précédente */}
                         {currentView === 'home' && !isExposing && (
                             <div className="bg-white rounded-3xl shadow-2xl p-8">
                                 <div className="text-center mb-8">
@@ -814,8 +882,15 @@
                                 </div>
 
                                 <button
+                                    onClick={() => setCurrentView('feed')}
+                                    className="w-full mt-6 bg-gradient-to-r from-green-400 to-emerald-400 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all"
+                                >
+                                    🌟 Feed du groupe
+                                </button>
+
+                                <button
                                     onClick={() => setCurrentView('history')}
-                                    className="w-full mt-6 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200 transition-all"
+                                    className="w-full mt-3 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200 transition-all"
                                 >
                                     📊 Voir mes progrès
                                 </button>
@@ -829,9 +904,94 @@
                             </div>
                         )}
 
-                        {/* Copie du reste de l'interface d'exposition, journal, historique et badges */}
-                        {/* (même code qu'avant pour ces sections) */}
-                        
+                        {currentView === 'feed' && (
+                            <div className="bg-white rounded-3xl shadow-2xl p-8">
+                                <button
+                                    onClick={() => setCurrentView('home')}
+                                    className="mb-4 text-blue-600 font-semibold"
+                                >
+                                    ← Retour
+                                </button>
+                                
+                                <h2 className="text-2xl font-bold text-gray-800 mb-2">Feed du groupe 🌟</h2>
+                                <p className="text-gray-600 mb-6">Soutenez vos camarades !</p>
+
+                                {publicExposures.length === 0 ? (
+                                    <div className="text-center py-12">
+                                        <div className="text-6xl mb-4">🌱</div>
+                                        <p className="text-gray-600">Soyez le premier à partager une exposition !</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-6">
+                                        {publicExposures.map((exp) => (
+                                            <div key={exp.id} className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl">
+                                                <div className="flex items-start justify-between mb-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-xl">
+                                                            {exp.userInfo.displayName?.charAt(0).toUpperCase() || 'U'}
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-bold text-gray-800">{exp.userInfo.displayName || 'Utilisateur'}</p>
+                                                            <p className="text-sm text-gray-600">
+                                                                Niv. {exp.userInfo.level || 1} • {exp.date}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right text-sm text-gray-500">
+                                                        <p>👁️ {exp.views || 0}</p>
+                                                    </div>
+                                                </div>
+
+                                                <h3 className="font-bold text-lg text-gray-800 mb-3">{exp.name}</h3>
+
+                                                {renderChart(exp.ratings)}
+
+                                                <div className="mt-4 grid grid-cols-3 gap-3">
+                                                    <div className="bg-red-100 p-3 rounded-lg">
+                                                        <p className="text-xs text-gray-600">Pic</p>
+                                                        <p className="text-xl font-bold text-red-600">{exp.peakAnxiety}/10</p>
+                                                    </div>
+                                                    <div className="bg-green-100 p-3 rounded-lg">
+                                                        <p className="text-xs text-gray-600">Final</p>
+                                                        <p className="text-xl font-bold text-green-600">{exp.finalAnxiety}/10</p>
+                                                    </div>
+                                                    <div className="bg-blue-100 p-3 rounded-lg">
+                                                        <p className="text-xs text-gray-600">Durée</p>
+                                                        <p className="text-xl font-bold text-blue-600">{formatTime(exp.duration)}</p>
+                                                    </div>
+                                                </div>
+
+                                                {exp.journal && (
+                                                    <div className="mt-4 bg-white p-4 rounded-lg">
+                                                        <p className="text-sm text-gray-700 italic">"{exp.journal}"</p>
+                                                    </div>
+                                                )}
+
+                                                <div className="mt-4 flex gap-2 flex-wrap">
+                                                    {['👍', '💪', '🔥', '❤️', '🌟'].map(emoji => (
+                                                        <button
+                                                            key={emoji}
+                                                            onClick={() => {
+                                                                addReaction(exp.id, emoji);
+                                                                incrementViews(exp.id);
+                                                            }}
+                                                            className={`px-4 py-2 rounded-full text-lg transition-all ${
+                                                                hasUserReacted(exp.reactions, emoji)
+                                                                    ? 'bg-blue-500 text-white scale-110'
+                                                                    : 'bg-white hover:bg-gray-100'
+                                                            }`}
+                                                        >
+                                                            {emoji} {getReactionCount(exp.reactions, emoji) > 0 && getReactionCount(exp.reactions, emoji)}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {isExposing && (
                             <div className="bg-white rounded-3xl shadow-2xl p-8">
                                 <div className="text-center mb-6">
