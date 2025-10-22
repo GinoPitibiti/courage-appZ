@@ -73,7 +73,8 @@
                 xpToNextLevel: 100,
                 streak: 0,
                 totalExposures: 0,
-                badges: []
+                badges: [],
+                role: 'user' // 'user' ou 'admin'
             });
             const [showConfetti, setShowConfetti] = useState(false);
             const [encouragementMsg, setEncouragementMsg] = useState('');
@@ -134,7 +135,13 @@
                 try {
                     const statsDoc = await db.collection('users').doc(userId).get();
                     if (statsDoc.exists) {
-                        setUserStats(statsDoc.data());
+                        const userData = statsDoc.data();
+                        // S'assurer que le rôle existe (pour les anciens comptes)
+                        if (!userData.role) {
+                            userData.role = 'user';
+                        }
+                        setUserStats(userData);
+                        console.log("👤 Utilisateur chargé - Rôle:", userData.role);
                     } else {
                         const defaultStats = {
                             displayName: user?.displayName || 'Utilisateur',
@@ -144,10 +151,12 @@
                             streak: 0,
                             totalExposures: 0,
                             badges: [],
+                            role: 'user', // Rôle par défaut
                             createdAt: new Date()
                         };
                         await db.collection('users').doc(userId).set(defaultStats);
                         setUserStats(defaultStats);
+                        console.log("✅ Nouveau utilisateur créé avec rôle 'user'");
                     }
                     const exposuresSnapshot = await db.collection('exposures')
                         .where('userId', '==', userId)
@@ -201,6 +210,7 @@
                         streak: 0,
                         totalExposures: 0,
                         badges: [],
+                        role: 'user', // Rôle par défaut
                         createdAt: new Date()
                     });
                 } catch (error) {
@@ -244,6 +254,7 @@
                             streak: 0,
                             totalExposures: 0,
                             badges: [],
+                            role: 'user', // Rôle par défaut
                             createdAt: new Date()
                         });
                     }
@@ -762,7 +773,14 @@
                             <div className="flex items-center justify-between mb-4">
                                 <div>
                                     <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Courage</h1>
-                                    <p className="text-sm text-gray-600">Bonjour {user.displayName || 'Courage'} 👋</p>
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-sm text-gray-600">Bonjour {user.displayName || 'Courage'} 👋</p>
+                                        {userStats.role === 'admin' && (
+                                            <span className="bg-gradient-to-r from-red-500 to-pink-500 text-white text-xs font-bold px-2 py-1 rounded-full" title="Modérateur du groupe">
+                                                👑 Admin
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="flex items-center gap-4">
                                     <div className="flex items-center gap-2 bg-orange-100 px-3 py-1 rounded-full"><span className="text-orange-500">🔥</span><span className="font-bold text-orange-600">{userStats.streak}</span></div>
