@@ -116,13 +116,30 @@
                         const exposures = [];
                         for (const doc of snapshot.docs) {
                             const data = doc.data();
-                            const userDoc = await db.collection('users').doc(data.userId).get();
+
+                            // Si les nouvelles expositions ont userName/userLevel stockés directement, les utiliser
+                            // Sinon, faire une requête pour récupérer les infos utilisateur (compatibilité anciennes expositions)
+                            let userInfo;
+                            if (data.userName) {
+                                // Nouvelle méthode : données utilisateur stockées directement
+                                userInfo = {
+                                    displayName: data.userName,
+                                    level: data.userLevel || 1
+                                };
+                                console.log("Exposition avec nom stocké:", data.userName);
+                            } else {
+                                // Ancienne méthode : récupérer depuis la collection users
+                                const userDoc = await db.collection('users').doc(data.userId).get();
+                                userInfo = userDoc.exists ? userDoc.data() : { displayName: 'Utilisateur', level: 1 };
+                                console.log("Exposition ancienne, nom récupéré:", userInfo.displayName);
+                            }
+
                             const exposure = {
                                 ...data,
                                 id: doc.id, // ID doit être en dernier pour écraser celui dans data
-                                userInfo: userDoc.exists ? userDoc.data() : { displayName: 'Utilisateur' }
+                                userInfo: userInfo
                             };
-                            console.log("Exposition chargée - ID:", doc.id, "Nom:", exposure.name);
+                            console.log("Exposition chargée - ID:", doc.id, "Nom expo:", exposure.name, "Utilisateur:", userInfo.displayName);
                             exposures.push(exposure);
                         }
                         console.log(`✅ ${exposures.length} exposition(s) publique(s) chargée(s)`);
@@ -210,8 +227,8 @@
                 }
 
                 const confirmMsg = isAdmin && !isOwner
-                    ? '⚠️ MODÉRATION : Voulez-vous vraiment supprimer cette exposition publique ?'
-                    : 'Voulez-vous vraiment supprimer cette exposition ?';
+                    ? '⚠️ MODÉRATION : Voulez-vous vraiment supprimer cette exposition du feed public ?'
+                    : 'Voulez-vous vraiment retirer cette exposition du feed public ?\n\n(Elle restera visible dans votre historique "Mes progrès")';
 
                 if (!confirm(confirmMsg)) return;
 
@@ -219,38 +236,18 @@
                     console.log("🗑️ Suppression exposition publique:", exposureId);
                     console.log("Propriétaire:", exposureUserId, "User actuel:", user.uid, "Admin:", isAdmin);
 
-                    // Supprimer de public_exposures
+                    // Supprimer UNIQUEMENT de public_exposures
+                    // L'exposition reste dans la collection exposures (historique privé)
                     await db.collection('public_exposures').doc(exposureId).delete();
                     console.log("✅ Supprimé de public_exposures");
+                    console.log("ℹ️ L'exposition reste dans l'historique privé (collection exposures)");
 
-                    // Si c'est le propriétaire, supprimer aussi de sa collection exposures privée
-                    if (isOwner) {
-                        const privateExposures = await db.collection('exposures')
-                            .where('userId', '==', user.uid)
-                            .get();
-
-                        // Chercher l'exposition correspondante dans la collection privée
-                        const publicExp = publicExposures.find(e => e.id === exposureId);
-                        if (publicExp) {
-                            privateExposures.forEach(async (doc) => {
-                                const data = doc.data();
-                                if (data.name === publicExp.name &&
-                                    data.createdAt?.toDate?.()?.getTime() === publicExp.createdAt?.toDate?.()?.getTime()) {
-                                    await db.collection('exposures').doc(doc.id).delete();
-                                    console.log("✅ Supprimé aussi de exposures privées");
-                                }
-                            });
-                        }
-                    }
-
-                    // Mettre à jour l'état local
+                    // Mettre à jour UNIQUEMENT l'état local du feed public
                     setPublicExposures(prev => prev.filter(e => e.id !== exposureId));
 
-                    if (isOwner) {
-                        setAllExposures(prev => prev.filter(e => e.name !== publicExposures.find(exp => exp.id === exposureId)?.name));
-                    }
+                    // NE PAS toucher à allExposures car l'historique doit être conservé
 
-                    console.log("✅ Suppression réussie");
+                    console.log("✅ Suppression du feed public réussie (historique conservé)");
                 } catch (error) {
                     console.error("Erreur suppression exposition publique:", error);
                     alert("Erreur lors de la suppression: " + error.message);
@@ -696,14 +693,19 @@
                     setAllExposures([exposure, ...allExposures]);
                     if (isPublic) {
                         console.log("Création d'une exposition publique...");
+                        console.log("Nom d'utilisateur:", user.displayName || userStats.displayName);
                         // Créer une copie sans le champ 'id' qui vient de la collection exposures
                         const { id, ...exposureWithoutId } = exposure;
                         const publicDocRef = await db.collection('public_exposures').add({
                             ...exposureWithoutId,
+                            // Ajouter explicitement le nom d'utilisateur pour l'affichage
+                            userName: user.displayName || userStats.displayName || 'Utilisateur',
+                            userLevel: userStats.level || 1,
                             comments: [],
                             views: 0
                         });
                         console.log("✅ Exposition publique créée avec ID:", publicDocRef.id);
+                        console.log("✅ Nom utilisateur stocké:", user.displayName || userStats.displayName);
                     }
                 } catch (error) {
                     console.error("Erreur sauvegarde exposition:", error);
