@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Application d'accompagnement pour l'exposition thérapeutique">
+    <meta name="theme-color" content="#3b82f6">
+    <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiQ291cmFnZSIsInNob3J0X25hbWUiOiJDb3VyYWdlIiwic3RhcnRfdXJsIjoiLiIsImRpc3BsYXkiOiJzdGFuZGFsb25lIiwiYmFja2dyb3VuZF9jb2xvciI6IiNmZmZmZmYiLCJ0aGVtZV9jb2xvciI6IiMzYjgyZjYiLCJpY29ucyI6W3sic3JjIjoiZGF0YTppbWFnZS9zdmcreG1sLCUzQ3N2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxMDAgMTAwJyUzRSUzQ3RleHQgeT0nLjllbScgZm9udC1zaXplPSc5MCclM0Xwn5qAJTNDL3RleHQlM0UlM0Mvc3ZnJTNFIiwidHlwZSI6ImltYWdlL3N2Zyt4bWwiLCJzaXplcyI6IjUxMng1MTIifV19">
+    <title>Courage - Compagnon d'exposition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes bounce {
+            0%, 100% { transform: translateY(-25%); animation-timing-function: cubic-bezier(0.8, 0, 1, 1); }
+            50% { transform: translateY(0); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+        }
+        @keyframes ping {
+            75%, 100% { transform: scale(2); opacity: 0; }
+        }
+        .animate-bounce { animation: bounce 1s infinite; }
+        .animate-ping { animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
+    <div id="root"></div>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const CourageApp = () => {
+            // États de base
+            const [currentView, setCurrentView] = useState('home');
+            const [isExposing, setIsExposing] = useState(false);
+            const [timer, setTimer] = useState(0);
+            const [anxietyRatings, setAnxietyRatings] = useState([]);
+            const [currentAnxiety, setCurrentAnxiety] = useState(5);
+            const [exposureName, setExposureName] = useState('');
+            const [journal, setJournal] = useState('');
+            const [allExposures, setAllExposures] = useState([]);
+            
+            // Stats utilisateur
+            const [userStats, setUserStats] = useState({
+                level: 1,
+                xp: 0,
+                xpToNextLevel: 100,
+                streak: 0,
+                totalExposures: 0,
+                badges: []
+            });
+            
+            // États UI
+            const [showConfetti, setShowConfetti] = useState(false);
+            const [encouragementMsg, setEncouragementMsg] = useState('');
+            const [anxietyPhase, setAnxietyPhase] = useState('rising');
+            const [plateauStartTime, setPlateauStartTime] = useState(null);
+            const [peakReached, setPeakReached] = useState(false);
+            const [canEnd, setCanEnd] = useState(false);
+            const [currentRatingIndex, setCurrentRatingIndex] = useState(0);
+            const [showImprovement, setShowImprovement] = useState(false);
+
+            // Badges disponibles
+            const badges = [
+                { id: 'first', name: 'Premier Pas', icon: '🌱', condition: (stats) => stats.totalExposures >= 1 },
+                { id: 'warrior', name: 'Guerrier', icon: '⚔️', condition: (stats) => stats.totalExposures >= 5 },
+                { id: 'master', name: 'Maître', icon: '👑', condition: (stats) => stats.totalExposures >= 10 },
+                { id: 'streak3', name: 'Déterminé', icon: '🔥', condition: (stats) => stats.streak >= 3 },
+                { id: 'streak7', name: 'Invincible', icon: '💫', condition: (stats) => stats.streak >= 7 },
+                { id: 'level5', name: 'Expert', icon: '🎖️', condition: (stats) => stats.level >= 5 },
+                { id: 'level10', name: 'Légende', icon: '🏆', condition: (stats) => stats.level >= 10 }
+            ];
+
+            // Charger les données au démarrage
+            useEffect(() => {
+                const savedExposures = localStorage.getItem('courage_exposures');
+                const savedStats = localStorage.getItem('courage_stats');
+                
+                if (savedExposures) {
+                    setAllExposures(JSON.parse(savedExposures));
+                }
+                if (savedStats) {
+                    setUserStats(JSON.parse(savedStats));
+                }
+            }, []);
+
+            // Sauvegarder les données à chaque changement
+            useEffect(() => {
+                localStorage.setItem('courage_exposures', JSON.stringify(allExposures));
+            }, [allExposures]);
+
+            useEffect(() => {
+                localStorage.setItem('courage_stats', JSON.stringify(userStats));
+            }, [userStats]);
+
+            // Timer et encouragements
+            useEffect(() => {
+                let interval;
+                if (isExposing) {
+                    interval = setInterval(() => {
+                        setTimer(prev => prev + 1);
+                        
+                        if (timer === 300 && anxietyRatings.length > 0) {
+                            const currentAnxietyLevel = anxietyRatings[anxietyRatings.length - 1].anxiety;
+                            if (currentAnxietyLevel >= 6) {
+                                setEncouragementMsg("⚠️ C'est bien, mais il faut ABSOLUMENT continuer à t'exposer tant que ton anxiété n'est pas en dessous de 6, sinon les bénéfices seront perdus et ça aura été inutile ! Tiens bon ! 💪");
+                                setTimeout(() => setEncouragementMsg(''), 6000);
+                            }
+                        }
+                        
+                        if (timer > 300 && timer % 60 === 0 && anxietyRatings.length > 0) {
+                            const currentAnxietyLevel = anxietyRatings[anxietyRatings.length - 1].anxiety;
+                            if (currentAnxietyLevel >= 6) {
+                                const messages = [
+                                    "💪 Continue de t'exposer ! L'anxiété va finir par baisser !",
+                                    "🎯 Ne lâche rien ! Reste dans la situation, c'est essentiel !",
+                                    "🔥 Tiens bon ! Chaque seconde compte pour ton cerveau !",
+                                    "✨ Continue ! L'habituation est en cours, patience !",
+                                    "💎 Reste exposé ! C'est comme ça que ça marche !",
+                                    "⚡ N'abandonne pas ! Tu dois tenir jusqu'à ce que ça baisse !",
+                                    "🌟 Continue de t'exposer ! Le changement arrive !"
+                                ];
+                                const randomMsg = messages[Math.floor(Math.random() * messages.length)];
+                                setEncouragementMsg(randomMsg);
+                                setTimeout(() => setEncouragementMsg(''), 4000);
+                            } else {
+                                setEncouragementMsg("✨ C'est bien ! Ton anxiété est basse. Continue encore un peu pour consolider ! 🌈");
+                                setTimeout(() => setEncouragementMsg(''), 4000);
+                            }
+                        }
+                        
+                        if (anxietyRatings.length > 0) {
+                            const lastRatingTime = anxietyRatings[anxietyRatings.length - 1].time;
+                            const timeSinceLastRating = timer - lastRatingTime;
+                            
+                            if (timeSinceLastRating === 300) {
+                                setEncouragementMsg("📝 Ça fait 5 minutes ! Note ton niveau d'anxiété MAINTENANT pour suivre ta courbe d'habituation. C'est crucial !");
+                                setTimeout(() => setEncouragementMsg(''), 5000);
+                            }
+                        }
+                    }, 1000);
+                }
+                return () => clearInterval(interval);
+            }, [isExposing, timer, anxietyRatings]);
+
+            const analyzeAnxietyCurve = (ratings) => {
+                if (ratings.length < 2) return;
+
+                const lastRating = ratings[ratings.length - 1].anxiety;
+                const peak = Math.max(...ratings.map(r => r.anxiety));
+                const peakIndex = ratings.findIndex(r => r.anxiety === peak);
+                const currentTime = ratings[ratings.length - 1].time;
+                
+                if (peak >= 6 && !peakReached) {
+                    setPeakReached(true);
+                    setEncouragementMsg("🔥 Le pic est là ! C'est normal, tiens bon. Ça va bientôt redescendre naturellement !");
+                    setTimeout(() => setEncouragementMsg(''), 4000);
+                }
+
+                if (ratings.length >= 3 && peakReached) {
+                    const last3 = ratings.slice(-3);
+                    const isDescending = last3.length >= 2 && 
+                        last3.every((r, i) => i === 0 || r.anxiety <= last3[i-1].anxiety);
+                    
+                    const hasDropped = lastRating < peak - 1;
+
+                    if ((isDescending || hasDropped) && anxietyPhase !== 'declining' && anxietyPhase !== 'plateau') {
+                        setAnxietyPhase('declining');
+                        setEncouragementMsg("🎯 Excellent ! Ton anxiété baisse ! C'est l'habituation en action. Tu vois ? Ça marche !");
+                        setTimeout(() => setEncouragementMsg(''), 5000);
+                    }
+                }
+
+                if (ratings.length >= 3) {
+                    const last3 = ratings.slice(-3);
+                    const maxRecent = Math.max(...last3.map(r => r.anxiety));
+                    const minRecent = Math.min(...last3.map(r => r.anxiety));
+                    const variation = maxRecent - minRecent;
+
+                    if (variation <= 1) {
+                        if (anxietyPhase !== 'plateau' && !plateauStartTime) {
+                            setAnxietyPhase('plateau');
+                            setPlateauStartTime(currentTime);
+                            
+                            if (maxRecent >= 6) {
+                                setEncouragementMsg("✨ Plateau atteint ! Ton cerveau s'habitue. Continue, on attend que ça descende sous 6 !");
+                            } else {
+                                setEncouragementMsg("✨ Plateau bas atteint ! Ton cerveau apprend à rester calme !");
+                            }
+                            setTimeout(() => setEncouragementMsg(''), 5000);
+                        }
+                    }
+                }
+
+                if (peakReached && ratings.length >= 4) {
+                    const last3 = ratings.slice(-3);
+                    const allBelow6 = last3.every(r => r.anxiety < 6);
+                    
+                    if (allBelow6 && !canEnd) {
+                        setCanEnd(true);
+                        const avgAnxiety = Math.round(last3.reduce((sum, r) => sum + r.anxiety, 0) / 3);
+                        setEncouragementMsg(
+                            `🎉 BRAVO ! Tu peux arrêter maintenant ! Pourquoi ? ` +
+                            `✅ Ton anxiété a atteint le pic (${peak}/10), puis elle a baissé et se maintient stable EN DESSOUS de 6 (actuellement ${avgAnxiety}/10). ` +
+                            `✅ Ton cerveau a appris que cette situation n'est pas dangereuse. L'exposition est RÉUSSIE ! 💪 ` +
+                            `Tu peux terminer fièrement. Si tu continues, c'est un bonus, mais ce n'est plus nécessaire pour les bénéfices thérapeutiques !`
+                        );
+                        setTimeout(() => setEncouragementMsg(''), 18000);
+                    }
+                }
+                
+                if (peakReached && ratings.length >= 3) {
+                    const last2 = ratings.slice(-2);
+                    const allBelow3 = last2.every(r => r.anxiety <= 3);
+                    
+                    if (allBelow3 && !canEnd) {
+                        setCanEnd(true);
+                        setEncouragementMsg(
+                            `🌟 EXCELLENT ! Tu peux arrêter maintenant ! ` +
+                            `Ton anxiété est très basse (≤3/10). Tu as complètement démontré que tu peux gérer cette situation avec calme. ` +
+                            `C'est une exposition exceptionnellement réussie ! Tu peux être fier de toi ! 🏆`
+                        );
+                        setTimeout(() => setEncouragementMsg(''), 18000);
+                    }
+                }
+            };
+
+            const startExposure = () => {
+                if (exposureName.trim()) {
+                    setIsExposing(true);
+                    setTimer(0);
+                    setAnxietyRatings([{ time: 0, anxiety: currentAnxiety }]);
+                    setAnxietyPhase('rising');
+                    setPlateauStartTime(null);
+                    setPeakReached(false);
+                    setCanEnd(false);
+                    setCurrentRatingIndex(0);
+                    setShowImprovement(false);
+                }
+            };
+
+            const addAnxietyRating = () => {
+                const newRatings = [...anxietyRatings, { time: timer, anxiety: currentAnxiety }];
+                setAnxietyRatings(newRatings);
+                setCurrentRatingIndex(newRatings.length - 1);
+                
+                if (newRatings.length >= 2) {
+                    const previous = newRatings[newRatings.length - 2].anxiety;
+                    const current = currentAnxiety;
+                    
+                    if (current < previous) {
+                        setShowImprovement(true);
+                        setTimeout(() => setShowImprovement(false), 2000);
+                        
+                        const improvement = previous - current;
+                        if (improvement >= 2) {
+                            setEncouragementMsg("🎉 Wow ! -" + improvement + " points ! Tu gères de mieux en mieux ! 💪");
+                        } else {
+                            setEncouragementMsg("✨ Ça baisse ! Continue, c'est parfait ! 🌟");
+                        }
+                        setTimeout(() => setEncouragementMsg(''), 3000);
+                    }
+                }
+                
+                analyzeAnxietyCurve(newRatings);
+            };
+
+            const endExposure = () => {
+                setIsExposing(false);
+                
+                const peakAnxiety = Math.max(...anxietyRatings.map(r => r.anxiety));
+                const finalAnxiety = anxietyRatings[anxietyRatings.length - 1]?.anxiety || 5;
+                const anxietyReduction = anxietyRatings[0]?.anxiety - finalAnxiety;
+                
+                let xpGained = 50;
+                if (timer > 60) xpGained += 20;
+                if (timer > 180) xpGained += 30;
+                if (anxietyReduction > 2) xpGained += 25;
+                if (peakAnxiety >= 8) xpGained += 15;
+                
+                const bonusXP = Math.random() > 0.7 ? Math.floor(Math.random() * 30) + 10 : 0;
+                xpGained += bonusXP;
+                
+                const newXP = userStats.xp + xpGained;
+                let newLevel = userStats.level;
+                let xpForNext = userStats.xpToNextLevel;
+                
+                if (newXP >= xpForNext) {
+                    newLevel++;
+                    xpForNext = newLevel * 100;
+                    setShowConfetti(true);
+                    setTimeout(() => setShowConfetti(false), 3000);
+                }
+                
+                const newStats = {
+                    ...userStats,
+                    xp: newXP >= userStats.xpToNextLevel ? newXP - userStats.xpToNextLevel : newXP,
+                    level: newLevel,
+                    xpToNextLevel: xpForNext,
+                    totalExposures: userStats.totalExposures + 1,
+                    streak: userStats.streak + 1
+                };
+                
+                const newBadges = badges.filter(b => 
+                    !userStats.badges.includes(b.id) && b.condition(newStats)
+                ).map(b => b.id);
+                
+                if (newBadges.length > 0) {
+                    newStats.badges = [...userStats.badges, ...newBadges];
+                    setShowConfetti(true);
+                    setTimeout(() => setShowConfetti(false), 3000);
+                }
+                
+                setUserStats(newStats);
+                
+                const exposure = {
+                    id: Date.now(),
+                    name: exposureName,
+                    date: new Date().toLocaleDateString('fr-FR'),
+                    duration: timer,
+                    ratings: anxietyRatings,
+                    journal: '',
+                    xpGained,
+                    bonusXP,
+                    peakAnxiety,
+                    finalAnxiety
+                };
+                
+                setAllExposures([exposure, ...allExposures]);
+                setCurrentView('journal');
+            };
+
+            const saveJournal = () => {
+                const updated = [...allExposures];
+                updated[0].journal = journal;
+                setAllExposures(updated);
+                setJournal('');
+                setExposureName('');
+                setAnxietyRatings([]);
+                setCurrentAnxiety(5);
+                setCurrentView('home');
+            };
+
+            const formatTime = (seconds) => {
+                const mins = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            };
+
+            const renderChart = (ratings) => {
+                if (ratings.length < 2) return null;
+                const maxAnxiety = 10;
+                const maxTime = Math.max(...ratings.map(r => r.time));
+                const width = 300;
+                const height = 150;
+                
+                const points = ratings.map(r => ({
+                    x: (r.time / maxTime) * width,
+                    y: height - (r.anxiety / maxAnxiety) * height
+                }));
+                
+                const pathData = points.map((p, i) => 
+                    `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`
+                ).join(' ');
+                
+                return (
+                    <svg width={width} height={height} className="mx-auto mt-4">
+                        <defs>
+                            <linearGradient id="grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" style={{stopColor: '#ef4444', stopOpacity: 0.3}} />
+                                <stop offset="100%" style={{stopColor: '#10b981', stopOpacity: 0.3}} />
+                            </linearGradient>
+                        </defs>
+                        <path d={pathData + ` L ${width} ${height} L 0 ${height} Z`} fill="url(#grad)" />
+                        <path d={pathData} stroke="#3b82f6" strokeWidth="3" fill="none" />
+                        {points.map((p, i) => (
+                            <circle key={i} cx={p.x} cy={p.y} r="4" fill="#3b82f6" />
+                        ))}
+                    </svg>
+                );
+            };
+
+            return (
+                <div className="min-h-screen p-4">
+                    {showConfetti && (
+                        <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center">
+                            <div className="text-8xl animate-bounce">🎉</div>
+                            {[...Array(20)].map((_, i) => (
+                                <div
+                                    key={i}
+                                    className="absolute text-4xl animate-ping"
+                                    style={{
+                                        left: `${Math.random() * 100}%`,
+                                        top: `${Math.random() * 100}%`,
+                                        animationDelay: `${Math.random() * 0.5}s`
+                                    }}
+                                >
+                                    ✨
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <div className="max-w-4xl mx-auto">
+                        <div className="bg-white rounded-3xl shadow-2xl p-6 mb-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                                    Courage
+                                </h1>
+                                <div className="flex items-center gap-4">
+                                    <div className="flex items-center gap-2 bg-orange-100 px-3 py-1 rounded-full">
+                                        <span className="text-orange-500">🔥</span>
+                                        <span className="font-bold text-orange-600">{userStats.streak}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-purple-100 px-3 py-1 rounded-full">
+                                        <span className="text-purple-500">⭐</span>
+                                        <span className="font-bold text-purple-600">Niv. {userStats.level}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="bg-gradient-to-r from-blue-500 to-purple-500 rounded-full h-3 mb-2 overflow-hidden">
+                                <div 
+                                    className="bg-yellow-300 h-full transition-all duration-500"
+                                    style={{ width: `${(userStats.xp / userStats.xpToNextLevel) * 100}%` }}
+                                />
+                            </div>
+                            <p className="text-sm text-gray-600 text-center">
+                                {userStats.xp} / {userStats.xpToNextLevel} XP
+                            </p>
+                        </div>
+
+                        {currentView === 'home' && !isExposing && (
+                            <div className="bg-white rounded-3xl shadow-2xl p-8">
+                                <div className="text-center mb-8">
+                                    <h2 className="text-2xl font-bold text-gray-800 mb-2">Prêt pour une nouvelle exposition ?</h2>
+                                    <p className="text-gray-600">Chaque pas compte. Tu es courageux ! 💪</p>
+                                </div>
+
+                                <div className="mb-6">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        Quelle situation vas-tu affronter ?
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={exposureName}
+                                        onChange={(e) => setExposureName(e.target.value)}
+                                        placeholder="Ex: Faire mes courses, parler à un collègue..."
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                                    />
+                                </div>
+
+                                <div className="mb-6">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        Niveau d'anxiété actuel : {currentAnxiety}/10
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="10"
+                                        value={currentAnxiety}
+                                        onChange={(e) => setCurrentAnxiety(parseInt(e.target.value))}
+                                        className="w-full"
+                                    />
+                                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                        <span>Calme</span>
+                                        <span>Panique</span>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={startExposure}
+                                    disabled={!exposureName.trim()}
+                                    className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-4 rounded-xl font-bold text-lg hover:shadow-lg transform hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    🚀 Commencer l'exposition
+                                </button>
+
+                                <div className="grid grid-cols-3 gap-4 mt-8">
+                                    <div className="bg-blue-50 p-4 rounded-xl text-center">
+                                        <span className="text-3xl">🎯</span>
+                                        <p className="text-2xl font-bold text-blue-600">{userStats.totalExposures}</p>
+                                        <p className="text-xs text-gray-600">Expositions</p>
+                                    </div>
+                                    <div className="bg-purple-50 p-4 rounded-xl text-center">
+                                        <span className="text-3xl">🏆</span>
+                                        <p className="text-2xl font-bold text-purple-600">{userStats.badges.length}</p>
+                                        <p className="text-xs text-gray-600">Badges</p>
+                                    </div>
+                                    <div className="bg-pink-50 p-4 rounded-xl text-center">
+                                        <span className="text-3xl">💖</span>
+                                        <p className="text-2xl font-bold text-pink-600">{userStats.level}</p>
+                                        <p className="text-xs text-gray-600">Niveau</p>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={() => setCurrentView('history')}
+                                    className="w-full mt-6 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200 transition-all"
+                                >
+                                    📊 Voir mes progrès
+                                </button>
+
+                                <button
+                                    onClick={() => setCurrentView('badges')}
+                                    className="w-full mt-3 bg-gradient-to-r from-yellow-400 to-orange-400 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all"
+                                >
+                                    🏆 Mes badges
+                                </button>
+                            </div>
+                        )}
+
+                        {isExposing && (
+                            <div className="bg-white rounded-3xl shadow-2xl p-8">
+                                <div className="text-center mb-6">
+                                    <h2 className="text-2xl font-bold text-gray-800 mb-2">{exposureName}</h2>
+                                    <div className="flex items-center justify-center gap-2 text-4xl font-bold text-blue-600">
+                                        <span>⏱️</span>
+                                        {formatTime(timer)}
+                                    </div>
+                                </div>
+
+                                {anxietyPhase && (
+                                    <div className="mb-4 text-center">
+                                        <div className={`inline-block px-6 py-3 rounded-full font-semibold text-lg ${
+                                            anxietyPhase === 'rising' ? 'bg-yellow-100 text-yellow-700' :
+                                            anxietyPhase === 'plateau' ? 'bg-purple-100 text-purple-700' :
+                                            anxietyPhase === 'declining' ? 'bg-green-100 text-green-700' :
+                                            'bg-blue-100 text-blue-700'
+                                        }`}>
+                                            {anxietyPhase === 'rising' ? '📈 Phase de montée' :
+                                             anxietyPhase === 'plateau' ? '➡️ Plateau d\'habituation' :
+                                             anxietyPhase === 'declining' ? '📉 Descente active !' :
+                                             '🎯 En exposition'}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {encouragementMsg && (
+                                    <div className={`p-4 rounded-xl mb-6 text-center font-semibold animate-pulse ${
+                                        canEnd 
+                                            ? 'bg-gradient-to-r from-green-400 to-emerald-400 text-white text-lg'
+                                            : anxietyPhase === 'declining'
+                                            ? 'bg-gradient-to-r from-blue-400 to-cyan-400 text-white'
+                                            : anxietyPhase === 'plateau'
+                                            ? 'bg-gradient-to-r from-purple-400 to-pink-400 text-white'
+                                            : 'bg-gradient-to-r from-yellow-400 to-orange-400 text-white'
+                                    }`}>
+                                        {encouragementMsg}
+                                    </div>
+                                )}
+
+                                <div className="mb-6">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        Anxiété actuelle : {currentAnxiety}/10
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="10"
+                                        value={currentAnxiety}
+                                        onChange={(e) => setCurrentAnxiety(parseInt(e.target.value))}
+                                        className="w-full"
+                                    />
+                                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                        <span>😌 Calme</span>
+                                        <span>😰 Anxieux</span>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={addAnxietyRating}
+                                    className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-3 rounded-xl font-semibold mb-4 hover:bg-blue-600 transition-all transform hover:scale-105"
+                                >
+                                    ✅ Noter ce niveau d'anxiété
+                                </button>
+
+                                {renderChart(anxietyRatings)}
+
+                                {anxietyRatings.length > 0 && (
+                                    <div className="mt-6">
+                                        <div className={`bg-gradient-to-r p-4 rounded-xl transition-all ${
+                                            showImprovement 
+                                                ? 'from-green-400 to-emerald-400 scale-105 shadow-lg' 
+                                                : 'from-gray-50 to-gray-100'
+                                        }`}>
+                                            <div className="flex items-center justify-between">
+                                                <button
+                                                    onClick={() => setCurrentRatingIndex(Math.max(0, currentRatingIndex - 1))}
+                                                    disabled={currentRatingIndex === 0}
+                                                    className="text-2xl disabled:opacity-30 disabled:cursor-not-allowed hover:scale-125 transition-transform"
+                                                >
+                                                    ◀
+                                                </button>
+                                                
+                                                <div className="text-center flex-1">
+                                                    {currentRatingIndex < anxietyRatings.length && (
+                                                        <>
+                                                            <div className={`text-5xl font-bold mb-2 ${
+                                                                showImprovement ? 'text-white animate-bounce' : 'text-gray-800'
+                                                            }`}>
+                                                                {anxietyRatings[currentRatingIndex].anxiety}
+                                                                {currentRatingIndex > 0 && 
+                                                                 anxietyRatings[currentRatingIndex].anxiety < anxietyRatings[currentRatingIndex - 1].anxiety && (
+                                                                    <span className="text-3xl ml-2">📉✨</span>
+                                                                )}
+                                                                {currentRatingIndex > 0 && 
+                                                                 anxietyRatings[currentRatingIndex].anxiety > anxietyRatings[currentRatingIndex - 1].anxiety && (
+                                                                    <span className="text-3xl ml-2">📈</span>
+                                                                )}
+                                                            </div>
+                                                            <div className={`text-sm ${showImprovement ? 'text-white font-bold' : 'text-gray-600'}`}>
+                                                                {formatTime(anxietyRatings[currentRatingIndex].time)}
+                                                                {currentRatingIndex > 0 && (
+                                                                    <span className="ml-2">
+                                                                        ({anxietyRatings[currentRatingIndex].anxiety - anxietyRatings[currentRatingIndex - 1].anxiety > 0 ? '+' : ''}
+                                                                        {anxietyRatings[currentRatingIndex].anxiety - anxietyRatings[currentRatingIndex - 1].anxiety})
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="text-xs mt-1 text-gray-500">
+                                                                Note {currentRatingIndex + 1} / {anxietyRatings.length}
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </div>
+
+                                                <button
+                                                    onClick={() => setCurrentRatingIndex(Math.min(anxietyRatings.length - 1, currentRatingIndex + 1))}
+                                                    disabled={currentRatingIndex === anxietyRatings.length - 1}
+                                                    className="text-2xl disabled:opacity-30 disabled:cursor-not-allowed hover:scale-125 transition-transform"
+                                                >
+                                                    ▶
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <button
+                                    onClick={endExposure}
+                                    className={`w-full py-4 rounded-xl font-bold text-lg mt-6 hover:shadow-lg transform hover:scale-105 transition-all ${
+                                        canEnd
+                                            ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white animate-pulse'
+                                            : 'bg-gradient-to-r from-gray-400 to-gray-500 text-white'
+                                    }`}
+                                >
+                                    {canEnd ? '🎉 Terminer l\'exposition (Recommandé)' : '⏸️ Terminer l\'exposition'}
+                                </button>
+                            </div>
+                        )}
+
+                        {currentView === 'journal' && (
+                            <div className="bg-white rounded-3xl shadow-2xl p-8">
+                                <h2 className="text-2xl font-bold text-gray-800 mb-4">Bravo ! 🎉</h2>
+                                
+                                <div className="bg-gradient-to-r from-yellow-100 to-orange-100 p-6 rounded-xl mb-6">
+                                    <p className="text-center text-2xl font-bold text-orange-600 mb-2">
+                                        +{allExposures[0]?.xpGained} XP
+                                    </p>
+                                    {allExposures[0]?.bonusXP > 0 && (
+                                        <p className="text-center text-lg text-orange-500">
+                                            ✨ Bonus chance: +{allExposures[0]?.bonusXP} XP !
+                                        </p>
+                                    )}
+                                    <p className="text-center text-sm text-gray-600 mt-2">
+                                        Durée: {formatTime(allExposures[0]?.duration)}
+                                    </p>
+                                </div>
+
+                                <div className="mb-6">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        Comment c'était pour toi ?
+                                    </label>
+                                    <textarea
+                                        value={journal}
+                                        onChange={(e) => setJournal(e.target.value)}
+                                        placeholder="Décris ton expérience, ce que tu as ressenti, ce que tu as appris..."
+                                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none h-32"
+                                    />
+                                </div>
+
+                                <button
+                                    onClick={saveJournal}
+                                    className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-4 rounded-xl font-bold text-lg hover:shadow-lg transform hover:scale-105 transition-all"
+                                >
+                                    💾 Sauvegarder et continuer
+                                </button>
+                            </div>
+                        )}
+
+                        {currentView === 'history' && (
+                            <div className="bg-white rounded-3xl shadow-2xl p-8">
+                                <button
+                                    onClick={() => setCurrentView('home')}
+                                    className="mb-4 text-blue-600 font-semibold"
+                                >
+                                    ← Retour
+                                </button>
+                                
+                                <h2 className="text-2xl font-bold text-gray-800 mb-2">Mes progrès 📈</h2>
+                                
+                                <div className="bg-gradient-to-r from-blue-500 to-purple-500 text-white p-6 rounded-xl mb-6 text-center">
+                                    <div className="text-5xl font-bold mb-2">{allExposures.length}</div>
+                                    <div className="text-lg">Exposition{allExposures.length > 1 ? 's' : ''} réalisée{allExposures.length > 1 ? 's' : ''} 🎯</div>
+                                    <div className="text-sm mt-2 opacity-90">
+                                        {allExposures.length === 0 && "Lance ta première exposition !"}
+                                        {allExposures.length === 1 && "Premier pas accompli ! Continue !"}
+                                        {allExposures.length >= 2 && allExposures.length < 5 && "Tu progresses bien ! 💪"}
+                                        {allExposures.length >= 5 && allExposures.length < 10 && "Excellente régularité ! 🌟"}
+                                        {allExposures.length >= 10 && "Tu es un champion de l'exposition ! 🏆"}
+                                    </div>
+                                </div>
+
+                                {allExposures.length === 0 ? (
+                                    <p className="text-center text-gray-500 py-8">
+                                        Commence ta première exposition pour voir tes progrès !
+                                    </p>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {allExposures.map((exp, index) => (
+                                            <div key={exp.id} className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl">
+                                                <div className="flex justify-between items-start mb-3">
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                                                                #{allExposures.length - index}
+                                                            </span>
+                                                            <h3 className="font-bold text-lg text-gray-800">{exp.name}</h3>
+                                                        </div>
+                                                        <p className="text-sm text-gray-600 mt-1">{exp.date}</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-sm text-gray-600">Durée: {formatTime(exp.duration)}</p>
+                                                        <p className="text-sm font-semibold text-blue-600">+{exp.xpGained} XP</p>
+                                                    </div>
+                                                </div>
+                                                
+                                                {renderChart(exp.ratings)}
+                                                
+                                                <div className="mt-4 grid grid-cols-2 gap-3">
+                                                    <div className="bg-red-100 p-3 rounded-lg">
+                                                        <p className="text-xs text-gray-600">Pic d'anxiété</p>
+                                                        <p className="text-2xl font-bold text-red-600">{exp.peakAnxiety}/10</p>
+                                                    </div>
+                                                    <div className="bg-green-100 p-3 rounded-lg">
+                                                        <p className="text-xs text-gray-600">Anxiété finale</p>
+                                                        <p className="text-2xl font-bold text-green-600">{exp.finalAnxiety}/10</p>
+                                                    </div>
+                                                </div>
+                                                
+                                                {exp.journal && (
+                                                    <div className="mt-4 bg-white p-4 rounded-lg">
+                                                        <p className="text-sm text-gray-700 italic">"{exp.journal}"</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {currentView === 'badges' && (
+                            <div className="bg-white rounded-3xl shadow-2xl p-8">
+                                <button
+                                    onClick={() => setCurrentView('home')}
+                                    className="mb-4 text-blue-600 font-semibold"
+                                >
+                                    ← Retour
+                                </button>
+                                
+                                <h2 className="text-2xl font-bold text-gray-800 mb-6">Collection de badges 🏆</h2>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    {badges.map((badge) => {
+                                        const unlocked = userStats.badges.includes(badge.id);
+                                        return (
+                                            <div
+                                                key={badge.id}
+                                                className={`p-6 rounded-xl text-center transition-all ${
+                                                    unlocked
+                                                        ? 'bg-gradient-to-br from-yellow-100 to-orange-100 shadow-lg transform hover:scale-105'
+                                                        : 'bg-gray-100 opacity-50'
+                                                }`}
+                                            >
+                                                <div className="text-5xl mb-2">{unlocked ? badge.icon : '🔒'}</div>
+                                                <p className="font-bold text-gray-800">{badge.name}</p>
+                                                {unlocked && (
+                                                    <p className="text-xs text-green-600 mt-1">✓ Débloqué</p>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="mt-8 bg-gradient-to-r from-purple-100 to-pink-100 p-6 rounded-xl">
+                                    <p className="text-center font-semibold text-gray-700">
+                                        🎯 Continue tes expositions pour débloquer plus de badges !
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<CourageApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
