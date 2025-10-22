@@ -111,16 +111,20 @@
                     .orderBy('createdAt', 'desc')
                     .limit(50)
                     .onSnapshot(async (snapshot) => {
+                        console.log("📡 Chargement du feed public...");
                         const exposures = [];
                         for (const doc of snapshot.docs) {
                             const data = doc.data();
                             const userDoc = await db.collection('users').doc(data.userId).get();
-                            exposures.push({
-                                id: doc.id,
+                            const exposure = {
                                 ...data,
+                                id: doc.id, // ID doit être en dernier pour écraser celui dans data
                                 userInfo: userDoc.exists ? userDoc.data() : { displayName: 'Utilisateur' }
-                            });
+                            };
+                            console.log("Exposition chargée - ID:", doc.id, "Nom:", exposure.name);
+                            exposures.push(exposure);
                         }
+                        console.log(`✅ ${exposures.length} exposition(s) publique(s) chargée(s)`);
                         setPublicExposures(exposures);
                     });
                 return unsubscribe;
@@ -272,18 +276,25 @@
                     return;
                 }
 
-                console.log("Ajout commentaire pour exposition:", exposureId);
+                console.log("=== AJOUT COMMENTAIRE ===");
+                console.log("ID de l'exposition:", exposureId);
                 console.log("Texte du commentaire:", commentText);
+                console.log("User:", user.displayName, user.uid);
 
                 try {
                     const exposureRef = db.collection('public_exposures').doc(exposureId);
 
+                    console.log("Tentative de récupération du document:", exposureId);
+
                     // Récupérer le document actuel
                     const doc = await exposureRef.get();
 
+                    console.log("Document existe?", doc.exists);
+
                     if (!doc.exists) {
-                        console.error("Document non trouvé!");
-                        alert("Exposition introuvable");
+                        console.error("❌ Document non trouvé dans public_exposures!");
+                        console.error("ID recherché:", exposureId);
+                        alert("Exposition introuvable (ID: " + exposureId + ")");
                         return;
                     }
 
@@ -551,11 +562,15 @@
                     exposure.id = docRef.id;
                     setAllExposures([exposure, ...allExposures]);
                     if (isPublic) {
-                        await db.collection('public_exposures').add({
-                            ...exposure,
+                        console.log("Création d'une exposition publique...");
+                        // Créer une copie sans le champ 'id' qui vient de la collection exposures
+                        const { id, ...exposureWithoutId } = exposure;
+                        const publicDocRef = await db.collection('public_exposures').add({
+                            ...exposureWithoutId,
                             comments: [],
                             views: 0
                         });
+                        console.log("✅ Exposition publique créée avec ID:", publicDocRef.id);
                     }
                 } catch (error) {
                     console.error("Erreur sauvegarde exposition:", error);
