@@ -269,21 +269,32 @@
             const addComment = async (exposureId) => {
                 if (!commentText.trim()) return;
                 try {
-                    const exposureRef = db.collection('public_exposures').doc(exposureId);
-                    const doc = await exposureRef.get();
-                    const data = doc.data();
-                    const comments = data.comments || [];
-                    comments.push({
+                    const newComment = {
                         userId: user.uid,
                         userName: user.displayName || 'Utilisateur',
                         text: commentText,
                         createdAt: new Date()
-                    });
+                    };
+
+                    const exposureRef = db.collection('public_exposures').doc(exposureId);
+                    const doc = await exposureRef.get();
+                    const data = doc.data();
+                    const comments = data.comments || [];
+                    comments.push(newComment);
                     await exposureRef.update({ comments });
+
+                    // Mise à jour locale immédiate de l'état pour afficher le commentaire instantanément
+                    setPublicExposures(prev => prev.map(exp =>
+                        exp.id === exposureId
+                            ? { ...exp, comments: [...(exp.comments || []), newComment] }
+                            : exp
+                    ));
+
                     setCommentText('');
                     setShowCommentBox(null);
                 } catch (error) {
                     console.error("Erreur ajout commentaire:", error);
+                    alert("Erreur lors de l'ajout du commentaire. Veuillez réessayer.");
                 }
             };
 
