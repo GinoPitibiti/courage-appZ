@@ -1,0 +1,79 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Fonction helper pour vérifier si l'utilisateur est authentifié
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Fonction helper pour vérifier si l'utilisateur est le propriétaire
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Fonction helper pour vérifier si l'utilisateur est admin
+    function isAdmin() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Collection des utilisateurs
+    match /users/{userId} {
+      // Lecture : l'utilisateur peut lire son propre profil, ou admin peut lire tous les profils
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Création : uniquement lors de l'inscription (son propre profil)
+      allow create: if isOwner(userId) &&
+                       request.resource.data.keys().hasAll(['displayName', 'email', 'level', 'xp', 'xpToNextLevel', 'streak', 'totalExposures', 'badges', 'createdAt']);
+
+      // Mise à jour : l'utilisateur peut mettre à jour son propre profil
+      // Important : ne pas permettre de changer son propre rôle
+      allow update: if isOwner(userId) &&
+                       (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+    }
+
+    // Collection des expositions privées
+    match /exposures/{exposureId} {
+      // Lecture : uniquement le propriétaire peut lire ses expositions, ou admin avec restrictions
+      allow read: if isOwner(resource.data.userId);
+
+      // Admin peut lire mais avec des restrictions (voir ci-dessous dans le code)
+      allow get: if isAdmin();
+
+      // Création : l'utilisateur peut créer ses propres expositions
+      allow create: if isSignedIn() &&
+                       request.resource.data.userId == request.auth.uid;
+
+      // Mise à jour : uniquement le propriétaire
+      allow update: if isOwner(resource.data.userId);
+
+      // Suppression : le propriétaire ou l'admin
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // Collection des expositions publiques (feed)
+    match /public_exposures/{exposureId} {
+      // Lecture : tout le monde authentifié peut lire les expositions publiques
+      allow read: if isSignedIn();
+
+      // Création : l'utilisateur peut créer ses propres expositions publiques
+      allow create: if isSignedIn() &&
+                       request.resource.data.userId == request.auth.uid &&
+                       request.resource.data.keys().hasAll(['userId', 'name', 'date', 'duration', 'ratings', 'peakAnxiety', 'finalAnxiety', 'comments', 'views', 'createdAt']);
+
+      // Mise à jour : le propriétaire peut mettre à jour, ou n'importe qui peut ajouter un commentaire/incrémenter les vues
+      allow update: if isSignedIn() && (
+        // Le propriétaire peut tout modifier
+        isOwner(resource.data.userId) ||
+        // Ou n'importe qui peut ajouter un commentaire (vérifié dans le code)
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['comments', 'views']))
+      );
+
+      // Suppression : le propriétaire ou l'admin
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+  }
+}
