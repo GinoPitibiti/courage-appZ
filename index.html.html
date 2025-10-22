@@ -108,11 +108,14 @@
             }, []);
 
             const loadPublicFeed = () => {
+                console.log("🌐 Initialisation du chargement du feed public...");
                 const unsubscribe = db.collection('public_exposures')
                     .orderBy('createdAt', 'desc')
                     .limit(50)
                     .onSnapshot(async (snapshot) => {
                         console.log("📡 Chargement du feed public...");
+                        console.log("Nombre de documents reçus:", snapshot.size);
+
                         const exposures = [];
                         for (const doc of snapshot.docs) {
                             const data = doc.data();
@@ -129,9 +132,14 @@
                                 console.log("Exposition avec nom stocké:", data.userName);
                             } else {
                                 // Ancienne méthode : récupérer depuis la collection users
-                                const userDoc = await db.collection('users').doc(data.userId).get();
-                                userInfo = userDoc.exists ? userDoc.data() : { displayName: 'Utilisateur', level: 1 };
-                                console.log("Exposition ancienne, nom récupéré:", userInfo.displayName);
+                                try {
+                                    const userDoc = await db.collection('users').doc(data.userId).get();
+                                    userInfo = userDoc.exists ? userDoc.data() : { displayName: 'Utilisateur', level: 1 };
+                                    console.log("Exposition ancienne, nom récupéré:", userInfo.displayName);
+                                } catch (error) {
+                                    console.error("Erreur récupération user:", data.userId, error);
+                                    userInfo = { displayName: 'Utilisateur', level: 1 };
+                                }
                             }
 
                             const exposure = {
@@ -144,6 +152,16 @@
                         }
                         console.log(`✅ ${exposures.length} exposition(s) publique(s) chargée(s)`);
                         setPublicExposures(exposures);
+                    }, (error) => {
+                        // Gestionnaire d'erreur pour onSnapshot
+                        console.error("❌ ERREUR chargement feed public:", error);
+                        console.error("Code erreur:", error.code);
+                        console.error("Message:", error.message);
+                        if (error.code === 'permission-denied') {
+                            console.error("🔒 PROBLÈME DE PERMISSIONS FIREBASE !");
+                            console.error("Les règles Firestore bloquent l'accès au feed public.");
+                            console.error("Solution: Vérifier les règles dans Firebase Console → Firestore Database → Règles");
+                        }
                     });
                 return unsubscribe;
             };
@@ -178,7 +196,7 @@
                     }
 
                     // Charger les expositions de l'utilisateur
-                    console.log("📚 Chargement des expositions...");
+                    console.log("📚 Chargement des expositions privées...");
                     const exposuresSnapshot = await db.collection('exposures')
                         .where('userId', '==', userId)
                         .orderBy('createdAt', 'desc')
@@ -197,6 +215,16 @@
                     console.error("❌ Erreur chargement données:", error);
                     console.error("Code erreur:", error.code);
                     console.error("Message:", error.message);
+
+                    if (error.code === 'permission-denied') {
+                        console.error("🔒 PROBLÈME DE PERMISSIONS FIREBASE !");
+                        console.error("Les règles Firestore bloquent l'accès à vos expositions.");
+                        console.error("Cela peut arriver si vous êtes admin et que les règles sont mal configurées.");
+                    } else if (error.code === 'failed-precondition') {
+                        console.error("📊 INDEX FIRESTORE MANQUANT !");
+                        console.error("Firebase a besoin d'un index pour cette requête.");
+                        console.error("Un lien devrait apparaître ci-dessous pour créer l'index automatiquement.");
+                    }
                 }
             };
 
