@@ -108,11 +108,14 @@
             }, []);
 
             const loadPublicFeed = () => {
+                console.log("🌐 Initialisation du chargement du feed public...");
                 const unsubscribe = db.collection('public_exposures')
                     .orderBy('createdAt', 'desc')
                     .limit(50)
                     .onSnapshot(async (snapshot) => {
                         console.log("📡 Chargement du feed public...");
+                        console.log("Nombre de documents reçus:", snapshot.size);
+
                         const exposures = [];
                         for (const doc of snapshot.docs) {
                             const data = doc.data();
@@ -129,9 +132,14 @@
                                 console.log("Exposition avec nom stocké:", data.userName);
                             } else {
                                 // Ancienne méthode : récupérer depuis la collection users
-                                const userDoc = await db.collection('users').doc(data.userId).get();
-                                userInfo = userDoc.exists ? userDoc.data() : { displayName: 'Utilisateur', level: 1 };
-                                console.log("Exposition ancienne, nom récupéré:", userInfo.displayName);
+                                try {
+                                    const userDoc = await db.collection('users').doc(data.userId).get();
+                                    userInfo = userDoc.exists ? userDoc.data() : { displayName: 'Utilisateur', level: 1 };
+                                    console.log("Exposition ancienne, nom récupéré:", userInfo.displayName);
+                                } catch (error) {
+                                    console.error("Erreur récupération user:", data.userId, error);
+                                    userInfo = { displayName: 'Utilisateur', level: 1 };
+                                }
                             }
 
                             const exposure = {
@@ -144,12 +152,23 @@
                         }
                         console.log(`✅ ${exposures.length} exposition(s) publique(s) chargée(s)`);
                         setPublicExposures(exposures);
+                    }, (error) => {
+                        // Gestionnaire d'erreur pour onSnapshot
+                        console.error("❌ ERREUR chargement feed public:", error);
+                        console.error("Code erreur:", error.code);
+                        console.error("Message:", error.message);
+                        if (error.code === 'permission-denied') {
+                            console.error("🔒 PROBLÈME DE PERMISSIONS FIREBASE !");
+                            console.error("Les règles Firestore bloquent l'accès au feed public.");
+                            console.error("Solution: Vérifier les règles dans Firebase Console → Firestore Database → Règles");
+                        }
                     });
                 return unsubscribe;
             };
 
             const loadUserData = async (userId) => {
                 try {
+                    console.log("🔄 Chargement des données utilisateur...", userId);
                     const statsDoc = await db.collection('users').doc(userId).get();
                     if (statsDoc.exists) {
                         const userData = statsDoc.data();
@@ -158,7 +177,7 @@
                             userData.role = 'user';
                         }
                         setUserStats(userData);
-                        console.log("👤 Utilisateur chargé - Rôle:", userData.role);
+                        console.log("👤 Utilisateur chargé - Nom:", userData.displayName, "Rôle:", userData.role);
                     } else {
                         const defaultStats = {
                             displayName: user?.displayName || 'Utilisateur',
@@ -175,6 +194,9 @@
                         setUserStats(defaultStats);
                         console.log("✅ Nouveau utilisateur créé avec rôle 'user'");
                     }
+
+                    // Charger les expositions de l'utilisateur
+                    console.log("📚 Chargement des expositions privées...");
                     const exposuresSnapshot = await db.collection('exposures')
                         .where('userId', '==', userId)
                         .orderBy('createdAt', 'desc')
@@ -184,8 +206,25 @@
                         exposures.push({ id: doc.id, ...doc.data() });
                     });
                     setAllExposures(exposures);
+                    console.log(`✅ ${exposures.length} exposition(s) chargée(s) depuis Firebase`);
+
+                    if (exposures.length > 0) {
+                        console.log("Première exposition:", exposures[0]);
+                    }
                 } catch (error) {
-                    console.error("Erreur chargement données:", error);
+                    console.error("❌ Erreur chargement données:", error);
+                    console.error("Code erreur:", error.code);
+                    console.error("Message:", error.message);
+
+                    if (error.code === 'permission-denied') {
+                        console.error("🔒 PROBLÈME DE PERMISSIONS FIREBASE !");
+                        console.error("Les règles Firestore bloquent l'accès à vos expositions.");
+                        console.error("Cela peut arriver si vous êtes admin et que les règles sont mal configurées.");
+                    } else if (error.code === 'failed-precondition') {
+                        console.error("📊 INDEX FIRESTORE MANQUANT !");
+                        console.error("Firebase a besoin d'un index pour cette requête.");
+                        console.error("Un lien devrait apparaître ci-dessous pour créer l'index automatiquement.");
+                    }
                 }
             };
 
@@ -304,10 +343,17 @@
                 try {
                     const provider = new firebase.auth.GoogleAuthProvider();
                     const result = await auth.signInWithPopup(provider);
+
+                    console.log("🔐 Connexion Google réussie");
+                    console.log("Nom Google:", result.user.displayName);
+                    console.log("Email:", result.user.email);
+
                     const userDoc = await db.collection('users').doc(result.user.uid).get();
                     if (!userDoc.exists) {
+                        // Nouvel utilisateur
+                        console.log("✨ Création d'un nouveau profil utilisateur");
                         await db.collection('users').doc(result.user.uid).set({
-                            displayName: result.user.displayName,
+                            displayName: result.user.displayName || result.user.email.split('@')[0],
                             email: result.user.email,
                             level: 1,
                             xp: 0,
@@ -318,8 +364,22 @@
                             role: 'user', // Rôle par défaut
                             createdAt: new Date()
                         });
+                        console.log("✅ Profil créé avec displayName:", result.user.displayName);
+                    } else {
+                        // Utilisateur existant - mettre à jour le displayName si nécessaire
+                        const userData = userDoc.data();
+                        if (!userData.displayName || userData.displayName === 'Utilisateur') {
+                            console.log("🔄 Mise à jour du displayName pour utilisateur existant");
+                            await db.collection('users').doc(result.user.uid).update({
+                                displayName: result.user.displayName || result.user.email.split('@')[0]
+                            });
+                            console.log("✅ DisplayName mis à jour:", result.user.displayName);
+                        } else {
+                            console.log("✓ Utilisateur existant avec displayName:", userData.displayName);
+                        }
                     }
                 } catch (error) {
+                    console.error("❌ Erreur connexion Google:", error);
                     setAuthError(error.message);
                 }
             };
@@ -691,24 +751,49 @@
                     const docRef = await db.collection('exposures').add(exposure);
                     exposure.id = docRef.id;
                     setAllExposures([exposure, ...allExposures]);
+                    console.log("✅ Exposition sauvegardée dans exposures avec ID:", docRef.id);
+
                     if (isPublic) {
-                        console.log("Création d'une exposition publique...");
-                        console.log("Nom d'utilisateur:", user.displayName || userStats.displayName);
+                        console.log("📤 Création d'une exposition publique...");
+
+                        // Récupérer le displayName de la meilleure source disponible
+                        let userName = 'Utilisateur';
+
+                        // Priorité 1 : user.displayName (Firebase Auth)
+                        if (user.displayName && user.displayName.trim()) {
+                            userName = user.displayName;
+                            console.log("✓ Nom depuis Firebase Auth:", userName);
+                        }
+                        // Priorité 2 : userStats.displayName (Firestore)
+                        else if (userStats.displayName && userStats.displayName.trim()) {
+                            userName = userStats.displayName;
+                            console.log("✓ Nom depuis Firestore:", userName);
+                        }
+                        // Priorité 3 : Email (si disponible)
+                        else if (user.email) {
+                            userName = user.email.split('@')[0];
+                            console.log("✓ Nom depuis email:", userName);
+                        } else {
+                            console.warn("⚠️ Aucun displayName trouvé, utilisation de 'Utilisateur'");
+                        }
+
                         // Créer une copie sans le champ 'id' qui vient de la collection exposures
                         const { id, ...exposureWithoutId } = exposure;
                         const publicDocRef = await db.collection('public_exposures').add({
                             ...exposureWithoutId,
                             // Ajouter explicitement le nom d'utilisateur pour l'affichage
-                            userName: user.displayName || userStats.displayName || 'Utilisateur',
+                            userName: userName,
                             userLevel: userStats.level || 1,
                             comments: [],
                             views: 0
                         });
                         console.log("✅ Exposition publique créée avec ID:", publicDocRef.id);
-                        console.log("✅ Nom utilisateur stocké:", user.displayName || userStats.displayName);
+                        console.log("✅ Nom utilisateur stocké:", userName);
                     }
                 } catch (error) {
-                    console.error("Erreur sauvegarde exposition:", error);
+                    console.error("❌ Erreur sauvegarde exposition:", error);
+                    console.error("Code erreur:", error.code);
+                    console.error("Message:", error.message);
                 }
                 setCurrentView('journal');
             };

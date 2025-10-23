@@ -26,54 +26,50 @@ service cloud.firestore {
       allow read: if isOwner(userId) || isAdmin();
 
       // Création : uniquement lors de l'inscription (son propre profil)
-      allow create: if isOwner(userId) &&
-                       request.resource.data.keys().hasAll(['displayName', 'email', 'level', 'xp', 'xpToNextLevel', 'streak', 'totalExposures', 'badges', 'createdAt']);
+      allow create: if isOwner(userId);
 
       // Mise à jour : l'utilisateur peut mettre à jour son propre profil
-      // Important : ne pas permettre de changer son propre rôle
+      // Important : ne pas permettre de changer son propre rôle sauf si déjà admin
       allow update: if isOwner(userId) &&
-                       (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+                       (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']) ||
+                        resource.data.role == 'admin');
     }
 
     // Collection des expositions privées
     match /exposures/{exposureId} {
-      // Lecture : uniquement le propriétaire peut lire ses expositions, ou admin avec restrictions
-      allow read: if isOwner(resource.data.userId);
-
-      // Admin peut lire mais avec des restrictions (voir ci-dessous dans le code)
-      allow get: if isAdmin();
+      // Lecture : uniquement le propriétaire peut lire ses expositions
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
 
       // Création : l'utilisateur peut créer ses propres expositions
       allow create: if isSignedIn() &&
                        request.resource.data.userId == request.auth.uid;
 
       // Mise à jour : uniquement le propriétaire
-      allow update: if isOwner(resource.data.userId);
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
 
       // Suppression : le propriétaire ou l'admin
-      allow delete: if isOwner(resource.data.userId) || isAdmin();
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
 
     // Collection des expositions publiques (feed)
     match /public_exposures/{exposureId} {
-      // Lecture : tout le monde authentifié peut lire les expositions publiques
+      // ⭐ LECTURE : TOUT LE MONDE authentifié peut lire les expositions publiques
       allow read: if isSignedIn();
 
       // Création : l'utilisateur peut créer ses propres expositions publiques
       allow create: if isSignedIn() &&
-                       request.resource.data.userId == request.auth.uid &&
-                       request.resource.data.keys().hasAll(['userId', 'name', 'date', 'duration', 'ratings', 'peakAnxiety', 'finalAnxiety', 'comments', 'views', 'createdAt']);
+                       request.resource.data.userId == request.auth.uid;
 
-      // Mise à jour : le propriétaire peut mettre à jour, ou n'importe qui peut ajouter un commentaire/incrémenter les vues
+      // Mise à jour : le propriétaire peut tout modifier, ou n'importe qui peut ajouter commentaires/vues
       allow update: if isSignedIn() && (
         // Le propriétaire peut tout modifier
-        isOwner(resource.data.userId) ||
-        // Ou n'importe qui peut ajouter un commentaire (vérifié dans le code)
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['comments', 'views']))
+        request.resource.data.userId == request.auth.uid ||
+        // Ou n'importe qui peut modifier uniquement comments et views
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['comments', 'views'])
       );
 
       // Suppression : le propriétaire ou l'admin
-      allow delete: if isOwner(resource.data.userId) || isAdmin();
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
     }
   }
 }
