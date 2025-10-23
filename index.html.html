@@ -25,6 +25,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js"></script>
     
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -44,6 +45,7 @@
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
+        const messaging = firebase.messaging();
 
         const { useState, useEffect } = React;
 
@@ -84,6 +86,8 @@
             const [canEnd, setCanEnd] = useState(false);
             const [currentRatingIndex, setCurrentRatingIndex] = useState(0);
             const [showImprovement, setShowImprovement] = useState(false);
+            const [notificationPermission, setNotificationPermission] = useState('default');
+            const [fcmToken, setFcmToken] = useState(null);
 
             const badges = [
                 { id: 'first', name: 'Premier Pas', icon: '🌱', condition: (stats) => stats.totalExposures >= 1 },
@@ -227,6 +231,112 @@
                     }
                 }
             };
+
+            // Gestion des notifications push
+            const requestNotificationPermission = async () => {
+                try {
+                    console.log("🔔 Demande de permission de notifications...");
+
+                    // Vérifier si les notifications sont supportées
+                    if (!('Notification' in window)) {
+                        console.log("❌ Les notifications ne sont pas supportées par ce navigateur");
+                        return;
+                    }
+
+                    // Vérifier la permission actuelle
+                    const permission = Notification.permission;
+                    console.log("Permission actuelle:", permission);
+                    setNotificationPermission(permission);
+
+                    if (permission === 'granted') {
+                        console.log("✅ Permission déjà accordée");
+                        await registerServiceWorkerAndGetToken();
+                    } else if (permission === 'default') {
+                        console.log("⏳ Demande de permission à l'utilisateur...");
+                        // La permission sera demandée via un bouton dans l'interface
+                    }
+                } catch (error) {
+                    console.error("❌ Erreur demande permission:", error);
+                }
+            };
+
+            const registerServiceWorkerAndGetToken = async () => {
+                try {
+                    console.log("📝 Enregistrement du Service Worker...");
+
+                    // Enregistrer le Service Worker
+                    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+                    console.log("✅ Service Worker enregistré:", registration);
+
+                    // Récupérer le token FCM
+                    console.log("🔑 Récupération du token FCM...");
+                    // Note: Pour production, tu devras ajouter une clé VAPID générée depuis Firebase Console
+                    // Project Settings → Cloud Messaging → Web Push certificates → Generate key pair
+                    const token = await messaging.getToken({
+                        serviceWorkerRegistration: registration
+                    });
+
+                    console.log("✅ Token FCM reçu:", token);
+                    setFcmToken(token);
+
+                    // Sauvegarder le token dans Firestore
+                    if (user) {
+                        await db.collection('users').doc(user.uid).update({
+                            fcmToken: token,
+                            notificationsEnabled: true,
+                            lastTokenUpdate: new Date()
+                        });
+                        console.log("✅ Token sauvegardé dans Firestore");
+                    }
+
+                    // Écouter les messages en premier plan
+                    messaging.onMessage((payload) => {
+                        console.log("📬 Message reçu en premier plan:", payload);
+
+                        // Afficher une notification personnalisée
+                        const notificationTitle = payload.notification.title || 'Courage App';
+                        const notificationOptions = {
+                            body: payload.notification.body,
+                            icon: '/icon-192x192.png',
+                            badge: '/badge-72x72.png',
+                            tag: payload.data?.type || 'general',
+                            data: payload.data
+                        };
+
+                        if (Notification.permission === 'granted') {
+                            new Notification(notificationTitle, notificationOptions);
+                        }
+                    });
+
+                } catch (error) {
+                    console.error("❌ Erreur enregistrement Service Worker ou récupération token:", error);
+                    if (error.code === 'messaging/permission-blocked') {
+                        console.error("🔒 L'utilisateur a bloqué les notifications");
+                    }
+                }
+            };
+
+            const askForNotificationPermission = async () => {
+                try {
+                    console.log("📢 Demande explicite de permission...");
+                    const permission = await Notification.requestPermission();
+                    console.log("Permission accordée:", permission);
+                    setNotificationPermission(permission);
+
+                    if (permission === 'granted') {
+                        await registerServiceWorkerAndGetToken();
+                    }
+                } catch (error) {
+                    console.error("❌ Erreur demande permission:", error);
+                }
+            };
+
+            // useEffect pour vérifier les permissions au chargement
+            useEffect(() => {
+                if (user) {
+                    requestNotificationPermission();
+                }
+            }, [user]);
 
             const deleteExposure = async (exposureId, isPublicExp) => {
                 if (!confirm('Voulez-vous vraiment supprimer cette exposition ?')) return;
@@ -1121,6 +1231,34 @@
                                     <div className="bg-purple-50 p-4 rounded-xl text-center"><span className="text-3xl">🏆</span><p className="text-2xl font-bold text-purple-600">{userStats.badges.length}</p><p className="text-xs text-gray-600">Badges</p></div>
                                     <div className="bg-pink-50 p-4 rounded-xl text-center"><span className="text-3xl">💖</span><p className="text-2xl font-bold text-pink-600">{userStats.level}</p><p className="text-xs text-gray-600">Niveau</p></div>
                                 </div>
+                                {notificationPermission !== 'granted' && (
+                                    <div className="mt-6 bg-gradient-to-r from-orange-50 to-yellow-50 border-2 border-orange-200 rounded-xl p-4">
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-3xl">🔔</span>
+                                            <div className="flex-1">
+                                                <p className="text-sm font-semibold text-gray-800">Notifications</p>
+                                                <p className="text-xs text-gray-600">Reçois des encouragements pendant tes expositions</p>
+                                            </div>
+                                            <button
+                                                onClick={askForNotificationPermission}
+                                                className="bg-gradient-to-r from-orange-400 to-yellow-400 text-white px-4 py-2 rounded-lg font-semibold hover:shadow-lg transition-all text-sm"
+                                            >
+                                                Activer
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                                {notificationPermission === 'granted' && (
+                                    <div className="mt-6 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-4">
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-3xl">✅</span>
+                                            <div className="flex-1">
+                                                <p className="text-sm font-semibold text-gray-800">Notifications activées</p>
+                                                <p className="text-xs text-gray-600">Tu recevras des notifications d'encouragement</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                                 <button onClick={() => setCurrentView('feed')} className="w-full mt-6 bg-gradient-to-r from-green-400 to-emerald-400 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all">🌟 Feed du groupe</button>
                                 <button onClick={() => setCurrentView('history')} className="w-full mt-3 bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200 transition-all">📊 Voir mes progrès</button>
                                 <button onClick={() => setCurrentView('badges')} className="w-full mt-3 bg-gradient-to-r from-yellow-400 to-orange-400 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition-all">🏆 Mes badges</button>
