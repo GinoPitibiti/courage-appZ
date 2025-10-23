@@ -834,23 +834,163 @@
                 if (ratings.length < 2) return null;
                 const maxAnxiety = 10;
                 const maxTime = Math.max(...ratings.map(r => r.time));
-                const width = 300;
-                const height = 150;
+
+                // Dimensions du graphique avec marges pour les axes
+                const marginLeft = 40;
+                const marginBottom = 40;
+                const marginTop = 10;
+                const marginRight = 10;
+                const chartWidth = 300;
+                const chartHeight = 150;
+                const totalWidth = chartWidth + marginLeft + marginRight;
+                const totalHeight = chartHeight + marginTop + marginBottom;
+
+                // Points du graphique
                 const points = ratings.map(r => ({
-                    x: (r.time / maxTime) * width,
-                    y: height - (r.anxiety / maxAnxiety) * height
+                    x: marginLeft + (r.time / maxTime) * chartWidth,
+                    y: marginTop + (chartHeight - (r.anxiety / maxAnxiety) * chartHeight)
                 }));
+
                 const pathData = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+                // Fonction pour formater le temps
+                const formatTime = (seconds) => {
+                    const mins = Math.floor(seconds / 60);
+                    const secs = seconds % 60;
+                    return `${mins}:${secs.toString().padStart(2, '0')}`;
+                };
+
                 return (
-                    <svg width={width} height={height} className="mx-auto mt-4">
+                    <svg width={totalWidth} height={totalHeight} className="mx-auto mt-4">
                         <defs>
                             <linearGradient id="grad" x1="0%" y1="0%" x2="0%" y2="100%">
                                 <stop offset="0%" style={{stopColor: '#ef4444', stopOpacity: 0.3}} />
                                 <stop offset="100%" style={{stopColor: '#10b981', stopOpacity: 0.3}} />
                             </linearGradient>
                         </defs>
-                        <path d={pathData + ` L ${width} ${height} L 0 ${height} Z`} fill="url(#grad)" />
+
+                        {/* Zone colorée sous la courbe */}
+                        <path
+                            d={pathData + ` L ${marginLeft + chartWidth} ${marginTop + chartHeight} L ${marginLeft} ${marginTop + chartHeight} Z`}
+                            fill="url(#grad)"
+                        />
+
+                        {/* Axe Y (ordonnées - anxiété) */}
+                        <line
+                            x1={marginLeft}
+                            y1={marginTop}
+                            x2={marginLeft}
+                            y2={marginTop + chartHeight}
+                            stroke="#6b7280"
+                            strokeWidth="2"
+                        />
+
+                        {/* Axe X (abscisses - temps) */}
+                        <line
+                            x1={marginLeft}
+                            y1={marginTop + chartHeight}
+                            x2={marginLeft + chartWidth}
+                            y2={marginTop + chartHeight}
+                            stroke="#6b7280"
+                            strokeWidth="2"
+                        />
+
+                        {/* Graduations et labels de l'axe Y (anxiété) */}
+                        {[0, 2, 4, 6, 8, 10].map(value => {
+                            const y = marginTop + chartHeight - (value / maxAnxiety) * chartHeight;
+                            return (
+                                <g key={value}>
+                                    {/* Ligne de grille horizontale */}
+                                    <line
+                                        x1={marginLeft}
+                                        y1={y}
+                                        x2={marginLeft + chartWidth}
+                                        y2={y}
+                                        stroke="#e5e7eb"
+                                        strokeWidth="1"
+                                        strokeDasharray="3,3"
+                                    />
+                                    {/* Graduation */}
+                                    <line
+                                        x1={marginLeft - 5}
+                                        y1={y}
+                                        x2={marginLeft}
+                                        y2={y}
+                                        stroke="#6b7280"
+                                        strokeWidth="2"
+                                    />
+                                    {/* Label */}
+                                    <text
+                                        x={marginLeft - 10}
+                                        y={y + 4}
+                                        textAnchor="end"
+                                        fontSize="12"
+                                        fill="#6b7280"
+                                    >
+                                        {value}
+                                    </text>
+                                </g>
+                            );
+                        })}
+
+                        {/* Graduations et labels de l'axe X (temps) */}
+                        {[0, 0.25, 0.5, 0.75, 1].map(ratio => {
+                            const timeValue = Math.round(maxTime * ratio);
+                            const x = marginLeft + ratio * chartWidth;
+                            return (
+                                <g key={ratio}>
+                                    {/* Graduation */}
+                                    <line
+                                        x1={x}
+                                        y1={marginTop + chartHeight}
+                                        x2={x}
+                                        y2={marginTop + chartHeight + 5}
+                                        stroke="#6b7280"
+                                        strokeWidth="2"
+                                    />
+                                    {/* Label */}
+                                    <text
+                                        x={x}
+                                        y={marginTop + chartHeight + 20}
+                                        textAnchor="middle"
+                                        fontSize="11"
+                                        fill="#6b7280"
+                                    >
+                                        {formatTime(timeValue)}
+                                    </text>
+                                </g>
+                            );
+                        })}
+
+                        {/* Label de l'axe Y */}
+                        <text
+                            x={15}
+                            y={marginTop + chartHeight / 2}
+                            textAnchor="middle"
+                            fontSize="12"
+                            fill="#374151"
+                            fontWeight="600"
+                            transform={`rotate(-90, 15, ${marginTop + chartHeight / 2})`}
+                        >
+                            Anxiété
+                        </text>
+
+                        {/* Label de l'axe X */}
+                        <text
+                            x={marginLeft + chartWidth / 2}
+                            y={totalHeight - 5}
+                            textAnchor="middle"
+                            fontSize="12"
+                            fill="#374151"
+                            fontWeight="600"
+                        >
+                            Temps
+                        </text>
+
+                        {/* Courbe d'anxiété */}
                         <path d={pathData} stroke="#3b82f6" strokeWidth="3" fill="none" />
+
+                        {/* Points sur la courbe */}
                         {points.map((p, i) => (
                             <circle key={i} cx={p.x} cy={p.y} r="4" fill="#3b82f6" />
                         ))}
