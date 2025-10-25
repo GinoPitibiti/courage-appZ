@@ -1,0 +1,38 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Capacitor
+.capacitor/
+capacitor-cordova-android-plugins/
+
+# Android
+android/app/build/
+android/app/release/
+android/build/
+android/.gradle/
+android/.idea/
+android/local.properties
+android/key.properties
+*.keystore
+*.jks
+
+# Fichiers sensibles
+google-services.json
+GoogleService-Info.plist
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

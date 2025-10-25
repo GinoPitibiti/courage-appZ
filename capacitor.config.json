@@ -1,0 +1,28 @@
+{
+  "appId": "com.courage.therapie",
+  "appName": "Courage",
+  "webDir": ".",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true,
+    "url": "index.html.html"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "launchAutoHide": true,
+      "backgroundColor": "#3b82f6",
+      "androidSplashResourceName": "splash",
+      "showSpinner": false
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  },
+  "android": {
+    "buildOptions": {
+      "releaseType": "APK"
+    },
+    "path": "android"
+  }
+}
