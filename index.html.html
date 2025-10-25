@@ -25,7 +25,6 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js"></script>
     
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -45,7 +44,6 @@
         firebase.initializeApp(firebaseConfig);
         const auth = firebase.auth();
         const db = firebase.firestore();
-        const messaging = firebase.messaging();
 
         const { useState, useEffect } = React;
 
@@ -87,7 +85,7 @@
             const [currentRatingIndex, setCurrentRatingIndex] = useState(0);
             const [showImprovement, setShowImprovement] = useState(false);
             const [notificationPermission, setNotificationPermission] = useState('default');
-            const [fcmToken, setFcmToken] = useState(null);
+            const [swRegistration, setSwRegistration] = useState(null);
 
             const badges = [
                 { id: 'first', name: 'Premier Pas', icon: '🌱', condition: (stats) => stats.totalExposures >= 1 },
@@ -232,10 +230,10 @@
                 }
             };
 
-            // Gestion des notifications push
+            // Gestion des notifications locales pour les messages d'encouragement
             const requestNotificationPermission = async () => {
                 try {
-                    console.log("🔔 Demande de permission de notifications...");
+                    console.log("🔔 Vérification du support des notifications...");
 
                     // Vérifier si les notifications sont supportées
                     if (!('Notification' in window)) {
@@ -249,82 +247,53 @@
                     setNotificationPermission(permission);
 
                     if (permission === 'granted') {
-                        console.log("✅ Permission déjà accordée");
-                        await registerServiceWorkerAndGetToken();
+                        console.log("✅ Notifications déjà autorisées");
                     } else if (permission === 'default') {
-                        console.log("⏳ Demande de permission à l'utilisateur...");
-                        // La permission sera demandée via un bouton dans l'interface
+                        console.log("⏳ En attente de la permission utilisateur...");
+                    } else {
+                        console.log("❌ Notifications bloquées par l'utilisateur");
                     }
                 } catch (error) {
-                    console.error("❌ Erreur demande permission:", error);
-                }
-            };
-
-            const registerServiceWorkerAndGetToken = async () => {
-                try {
-                    console.log("📝 Enregistrement du Service Worker...");
-
-                    // Enregistrer le Service Worker
-                    const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-                    console.log("✅ Service Worker enregistré:", registration);
-
-                    // Récupérer le token FCM
-                    console.log("🔑 Récupération du token FCM...");
-                    // Note: Pour production, tu devras ajouter une clé VAPID générée depuis Firebase Console
-                    // Project Settings → Cloud Messaging → Web Push certificates → Generate key pair
-                    const token = await messaging.getToken({
-                        serviceWorkerRegistration: registration
-                    });
-
-                    console.log("✅ Token FCM reçu:", token);
-                    setFcmToken(token);
-
-                    // Sauvegarder le token dans Firestore
-                    if (user) {
-                        await db.collection('users').doc(user.uid).update({
-                            fcmToken: token,
-                            notificationsEnabled: true,
-                            lastTokenUpdate: new Date()
-                        });
-                        console.log("✅ Token sauvegardé dans Firestore");
-                    }
-
-                    // Écouter les messages en premier plan
-                    messaging.onMessage((payload) => {
-                        console.log("📬 Message reçu en premier plan:", payload);
-
-                        // Afficher une notification personnalisée
-                        const notificationTitle = payload.notification.title || 'Courage App';
-                        const notificationOptions = {
-                            body: payload.notification.body,
-                            icon: '/icon-192x192.png',
-                            badge: '/badge-72x72.png',
-                            tag: payload.data?.type || 'general',
-                            data: payload.data
-                        };
-
-                        if (Notification.permission === 'granted') {
-                            new Notification(notificationTitle, notificationOptions);
-                        }
-                    });
-
-                } catch (error) {
-                    console.error("❌ Erreur enregistrement Service Worker ou récupération token:", error);
-                    if (error.code === 'messaging/permission-blocked') {
-                        console.error("🔒 L'utilisateur a bloqué les notifications");
-                    }
+                    console.error("❌ Erreur vérification notifications:", error);
                 }
             };
 
             const askForNotificationPermission = async () => {
                 try {
-                    console.log("📢 Demande explicite de permission...");
+                    console.log("📢 Demande de permission de notifications...");
                     const permission = await Notification.requestPermission();
-                    console.log("Permission accordée:", permission);
+                    console.log("Permission:", permission);
                     setNotificationPermission(permission);
 
                     if (permission === 'granted') {
-                        await registerServiceWorkerAndGetToken();
+                        console.log("✅ Notifications activées !");
+
+                        // Enregistrer le Service Worker pour gérer les clics sur mobile
+                        if ('serviceWorker' in navigator) {
+                            console.log("📝 Enregistrement du Service Worker...");
+                            const registration = await navigator.serviceWorker.register('/sw-notifications.js');
+                            console.log("✅ Service Worker enregistré:", registration);
+                            setSwRegistration(registration);
+
+                            // Attendre que le SW soit actif
+                            await navigator.serviceWorker.ready;
+
+                            // Envoyer une notification de test via le Service Worker
+                            registration.showNotification("Notifications activées ! 🎉", {
+                                body: "Tu recevras des messages d'encouragement pendant tes expositions",
+                                icon: '/icon-192x192.png',
+                                badge: '/badge-72x72.png',
+                                tag: 'test',
+                                vibrate: [200, 100, 200]
+                            });
+                        } else {
+                            // Fallback pour les navigateurs sans Service Worker
+                            new Notification("Notifications activées ! 🎉", {
+                                body: "Tu recevras des messages d'encouragement pendant tes expositions",
+                                icon: '/icon-192x192.png',
+                                badge: '/badge-72x72.png'
+                            });
+                        }
                     }
                 } catch (error) {
                     console.error("❌ Erreur demande permission:", error);
@@ -337,6 +306,57 @@
                     requestNotificationPermission();
                 }
             }, [user]);
+
+            // Fonction pour afficher un message d'encouragement ET envoyer une notification si l'onglet n'est pas visible
+            const showEncouragementMessage = async (message, duration = 4000) => {
+                // Toujours afficher le message dans l'interface
+                setEncouragementMsg(message);
+                setTimeout(() => setEncouragementMsg(''), duration);
+
+                // Si l'onglet n'est pas visible ET que les notifications sont activées, envoyer une notification
+                if (document.hidden && Notification.permission === 'granted') {
+                    console.log("📱 Onglet en arrière-plan, envoi de notification:", message);
+
+                    try {
+                        // Essayer d'utiliser le Service Worker si disponible (meilleur pour mobile)
+                        if ('serviceWorker' in navigator && swRegistration) {
+                            console.log("🔔 Envoi via Service Worker");
+                            await swRegistration.showNotification("Courage - Exposition en cours", {
+                                body: message,
+                                icon: '/icon-192x192.png',
+                                badge: '/badge-72x72.png',
+                                tag: 'encouragement',
+                                requireInteraction: false,
+                                vibrate: [200, 100, 200],
+                                silent: false
+                            });
+                        } else {
+                            // Fallback pour les navigateurs sans Service Worker ou si pas encore enregistré
+                            console.log("🔔 Envoi via Notification API");
+                            const notification = new Notification("Courage - Exposition en cours", {
+                                body: message,
+                                icon: '/icon-192x192.png',
+                                badge: '/badge-72x72.png',
+                                tag: 'encouragement',
+                                requireInteraction: false,
+                                vibrate: [200, 100, 200],
+                                silent: false
+                            });
+
+                            // Auto-fermer la notification après la durée du message
+                            setTimeout(() => notification.close(), duration);
+
+                            // Quand on clique sur la notification, ramener l'utilisateur à l'onglet
+                            notification.onclick = () => {
+                                window.focus();
+                                notification.close();
+                            };
+                        }
+                    } catch (error) {
+                        console.error("❌ Erreur envoi notification:", error);
+                    }
+                }
+            };
 
             const deleteExposure = async (exposureId, isPublicExp) => {
                 if (!confirm('Voulez-vous vraiment supprimer cette exposition ?')) return;
@@ -665,8 +685,7 @@
                         if (timer === 300 && anxietyRatings.length > 0) {
                             const currentAnxietyLevel = anxietyRatings[anxietyRatings.length - 1].anxiety;
                             if (currentAnxietyLevel >= 6) {
-                                setEncouragementMsg("⚠️ C'est bien, mais il faut ABSOLUMENT continuer à t'exposer tant que ton anxiété n'est pas en dessous de 6, sinon les bénéfices seront perdus et ça aura été inutile ! Tiens bon ! 💪");
-                                setTimeout(() => setEncouragementMsg(''), 6000);
+                                showEncouragementMessage("⚠️ C'est bien, mais il faut ABSOLUMENT continuer à t'exposer tant que ton anxiété n'est pas en dessous de 6, sinon les bénéfices seront perdus et ça aura été inutile ! Tiens bon ! 💪", 6000);
                             }
                         }
                         if (timer > 300 && timer % 60 === 0 && anxietyRatings.length > 0) {
@@ -682,19 +701,16 @@
                                     "🌟 Continue de t'exposer ! Le changement arrive !"
                                 ];
                                 const randomMsg = messages[Math.floor(Math.random() * messages.length)];
-                                setEncouragementMsg(randomMsg);
-                                setTimeout(() => setEncouragementMsg(''), 4000);
+                                showEncouragementMessage(randomMsg, 4000);
                             } else {
-                                setEncouragementMsg("✨ C'est bien ! Ton anxiété est basse. Continue encore un peu pour consolider ! 🌈");
-                                setTimeout(() => setEncouragementMsg(''), 4000);
+                                showEncouragementMessage("✨ C'est bien ! Ton anxiété est basse. Continue encore un peu pour consolider ! 🌈", 4000);
                             }
                         }
                         if (anxietyRatings.length > 0) {
                             const lastRatingTime = anxietyRatings[anxietyRatings.length - 1].time;
                             const timeSinceLastRating = timer - lastRatingTime;
                             if (timeSinceLastRating === 300) {
-                                setEncouragementMsg("📝 Ça fait 5 minutes ! Note ton niveau d'anxiété MAINTENANT pour suivre ta courbe d'habituation. C'est crucial !");
-                                setTimeout(() => setEncouragementMsg(''), 5000);
+                                showEncouragementMessage("📝 Ça fait 5 minutes ! Note ton niveau d'anxiété MAINTENANT pour suivre ta courbe d'habituation. C'est crucial !", 5000);
                             }
                         }
                     }, 1000);
@@ -709,8 +725,7 @@
                 const currentTime = ratings[ratings.length - 1].time;
                 if (peak >= 6 && !peakReached) {
                     setPeakReached(true);
-                    setEncouragementMsg("🔥 Le pic est là ! C'est normal, tiens bon. Ça va bientôt redescendre naturellement !");
-                    setTimeout(() => setEncouragementMsg(''), 4000);
+                    showEncouragementMessage("🔥 Le pic est là ! C'est normal, tiens bon. Ça va bientôt redescendre naturellement !", 4000);
                 }
                 if (ratings.length >= 3 && peakReached) {
                     const last3 = ratings.slice(-3);
@@ -718,8 +733,7 @@
                     const hasDropped = lastRating < peak - 1;
                     if ((isDescending || hasDropped) && anxietyPhase !== 'declining' && anxietyPhase !== 'plateau') {
                         setAnxietyPhase('declining');
-                        setEncouragementMsg("🎯 Excellent ! Ton anxiété baisse ! C'est l'habituation en action. Tu vois ? Ça marche !");
-                        setTimeout(() => setEncouragementMsg(''), 5000);
+                        showEncouragementMessage("🎯 Excellent ! Ton anxiété baisse ! C'est l'habituation en action. Tu vois ? Ça marche !", 5000);
                     }
                 }
                 if (ratings.length >= 3) {
@@ -732,11 +746,10 @@
                             setAnxietyPhase('plateau');
                             setPlateauStartTime(currentTime);
                             if (maxRecent >= 6) {
-                                setEncouragementMsg("✨ Plateau atteint ! Ton cerveau s'habitue. Continue, on attend que ça descende sous 6 !");
+                                showEncouragementMessage("✨ Plateau atteint ! Ton cerveau s'habitue. Continue, on attend que ça descende sous 6 !", 5000);
                             } else {
-                                setEncouragementMsg("✨ Plateau bas atteint ! Ton cerveau apprend à rester calme !");
+                                showEncouragementMessage("✨ Plateau bas atteint ! Ton cerveau apprend à rester calme !", 5000);
                             }
-                            setTimeout(() => setEncouragementMsg(''), 5000);
                         }
                     }
                 }
@@ -746,13 +759,13 @@
                     if (allBelow6 && !canEnd) {
                         setCanEnd(true);
                         const avgAnxiety = Math.round(last3.reduce((sum, r) => sum + r.anxiety, 0) / 3);
-                        setEncouragementMsg(
+                        showEncouragementMessage(
                             `🎉 BRAVO ! Tu peux arrêter maintenant ! Pourquoi ? ` +
                             `✅ Ton anxiété a atteint le pic (${peak}/10), puis elle a baissé et se maintient stable EN DESSOUS de 6 (actuellement ${avgAnxiety}/10). ` +
                             `✅ Ton cerveau a appris que cette situation n'est pas dangereuse. L'exposition est RÉUSSIE ! 💪 ` +
-                            `Tu peux terminer fièrement. Si tu continues, c'est un bonus, mais ce n'est plus nécessaire pour les bénéfices thérapeutiques !`
+                            `Tu peux terminer fièrement. Si tu continues, c'est un bonus, mais ce n'est plus nécessaire pour les bénéfices thérapeutiques !`,
+                            18000
                         );
-                        setTimeout(() => setEncouragementMsg(''), 18000);
                     }
                 }
                 if (peakReached && ratings.length >= 3) {
@@ -760,12 +773,12 @@
                     const allBelow3 = last2.every(r => r.anxiety <= 3);
                     if (allBelow3 && !canEnd) {
                         setCanEnd(true);
-                        setEncouragementMsg(
+                        showEncouragementMessage(
                             `🌟 EXCELLENT ! Tu peux arrêter maintenant ! ` +
                             `Ton anxiété est très basse (≤3/10). Tu as complètement démontré que tu peux gérer cette situation avec calme. ` +
-                            `C'est une exposition exceptionnellement réussie ! Tu peux être fier de toi ! 🏆`
+                            `C'est une exposition exceptionnellement réussie ! Tu peux être fier de toi ! 🏆`,
+                            18000
                         );
-                        setTimeout(() => setEncouragementMsg(''), 18000);
                     }
                 }
             };
@@ -796,11 +809,10 @@
                         setTimeout(() => setShowImprovement(false), 2000);
                         const improvement = previous - current;
                         if (improvement >= 2) {
-                            setEncouragementMsg("🎉 Wow ! -" + improvement + " points ! Tu gères de mieux en mieux ! 💪");
+                            showEncouragementMessage("🎉 Wow ! -" + improvement + " points ! Tu gères de mieux en mieux ! 💪", 3000);
                         } else {
-                            setEncouragementMsg("✨ Ça baisse ! Continue, c'est parfait ! 🌟");
+                            showEncouragementMessage("✨ Ça baisse ! Continue, c'est parfait ! 🌟", 3000);
                         }
-                        setTimeout(() => setEncouragementMsg(''), 3000);
                     }
                 }
                 analyzeAnxietyCurve(newRatings);
