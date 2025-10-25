@@ -85,6 +85,7 @@
             const [currentRatingIndex, setCurrentRatingIndex] = useState(0);
             const [showImprovement, setShowImprovement] = useState(false);
             const [notificationPermission, setNotificationPermission] = useState('default');
+            const [swRegistration, setSwRegistration] = useState(null);
 
             const badges = [
                 { id: 'first', name: 'Premier Pas', icon: '🌱', condition: (stats) => stats.totalExposures >= 1 },
@@ -265,13 +266,34 @@
                     setNotificationPermission(permission);
 
                     if (permission === 'granted') {
-                        console.log("✅ Notifications activées ! Tu recevras des encouragements même si l'app est en arrière-plan.");
-                        // Envoyer une notification de test
-                        new Notification("Notifications activées ! 🎉", {
-                            body: "Tu recevras des messages d'encouragement pendant tes expositions",
-                            icon: '/icon-192x192.png',
-                            badge: '/badge-72x72.png'
-                        });
+                        console.log("✅ Notifications activées !");
+
+                        // Enregistrer le Service Worker pour gérer les clics sur mobile
+                        if ('serviceWorker' in navigator) {
+                            console.log("📝 Enregistrement du Service Worker...");
+                            const registration = await navigator.serviceWorker.register('/sw-notifications.js');
+                            console.log("✅ Service Worker enregistré:", registration);
+                            setSwRegistration(registration);
+
+                            // Attendre que le SW soit actif
+                            await navigator.serviceWorker.ready;
+
+                            // Envoyer une notification de test via le Service Worker
+                            registration.showNotification("Notifications activées ! 🎉", {
+                                body: "Tu recevras des messages d'encouragement pendant tes expositions",
+                                icon: '/icon-192x192.png',
+                                badge: '/badge-72x72.png',
+                                tag: 'test',
+                                vibrate: [200, 100, 200]
+                            });
+                        } else {
+                            // Fallback pour les navigateurs sans Service Worker
+                            new Notification("Notifications activées ! 🎉", {
+                                body: "Tu recevras des messages d'encouragement pendant tes expositions",
+                                icon: '/icon-192x192.png',
+                                badge: '/badge-72x72.png'
+                            });
+                        }
                     }
                 } catch (error) {
                     console.error("❌ Erreur demande permission:", error);
@@ -286,7 +308,7 @@
             }, [user]);
 
             // Fonction pour afficher un message d'encouragement ET envoyer une notification si l'onglet n'est pas visible
-            const showEncouragementMessage = (message, duration = 4000) => {
+            const showEncouragementMessage = async (message, duration = 4000) => {
                 // Toujours afficher le message dans l'interface
                 setEncouragementMsg(message);
                 setTimeout(() => setEncouragementMsg(''), duration);
@@ -295,27 +317,44 @@
                 if (document.hidden && Notification.permission === 'granted') {
                     console.log("📱 Onglet en arrière-plan, envoi de notification:", message);
 
-                    // Nettoyer le message des emojis pour le titre
-                    const cleanMessage = message.replace(/[^\w\s!?.,]/g, '').trim();
+                    try {
+                        // Essayer d'utiliser le Service Worker si disponible (meilleur pour mobile)
+                        if ('serviceWorker' in navigator && swRegistration) {
+                            console.log("🔔 Envoi via Service Worker");
+                            await swRegistration.showNotification("Courage - Exposition en cours", {
+                                body: message,
+                                icon: '/icon-192x192.png',
+                                badge: '/badge-72x72.png',
+                                tag: 'encouragement',
+                                requireInteraction: false,
+                                vibrate: [200, 100, 200],
+                                silent: false
+                            });
+                        } else {
+                            // Fallback pour les navigateurs sans Service Worker ou si pas encore enregistré
+                            console.log("🔔 Envoi via Notification API");
+                            const notification = new Notification("Courage - Exposition en cours", {
+                                body: message,
+                                icon: '/icon-192x192.png',
+                                badge: '/badge-72x72.png',
+                                tag: 'encouragement',
+                                requireInteraction: false,
+                                vibrate: [200, 100, 200],
+                                silent: false
+                            });
 
-                    const notification = new Notification("Courage - Exposition en cours", {
-                        body: message,
-                        icon: '/icon-192x192.png',
-                        badge: '/badge-72x72.png',
-                        tag: 'encouragement',
-                        requireInteraction: false,
-                        vibrate: [200, 100, 200],
-                        silent: false
-                    });
+                            // Auto-fermer la notification après la durée du message
+                            setTimeout(() => notification.close(), duration);
 
-                    // Auto-fermer la notification après la durée du message
-                    setTimeout(() => notification.close(), duration);
-
-                    // Quand on clique sur la notification, ramener l'utilisateur à l'onglet
-                    notification.onclick = () => {
-                        window.focus();
-                        notification.close();
-                    };
+                            // Quand on clique sur la notification, ramener l'utilisateur à l'onglet
+                            notification.onclick = () => {
+                                window.focus();
+                                notification.close();
+                            };
+                        }
+                    } catch (error) {
+                        console.error("❌ Erreur envoi notification:", error);
+                    }
                 }
             };
 
